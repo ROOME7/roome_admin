@@ -1,33 +1,114 @@
 @import "tailwindcss";
 
 /*
- * Light-only theme for v1.
+ * RooMe design tokens.
  *
- * The default create-next-app globals.css flipped these CSS variables on
- * `@media (prefers-color-scheme: dark)`. That made every input field render
- * near-white text on a white background for any admin on a dark-mode OS.
- * Until we explicitly design + test a dark theme, we lock to light mode.
+ * Source of truth: the RooMe brand design system (HSL values match the
+ * marketing site / mobile app). We store the hue/saturation/lightness as
+ * space-separated triples so they compose with hsl() and can be reused
+ * with alpha modifiers (`hsl(var(--primary) / 0.5)`).
+ *
+ * The @theme inline block below republishes each token as a Tailwind
+ * color/font utility, so writing `bg-primary` or `text-foreground` in
+ * JSX just works.
  */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand */
+  --primary: 213 63% 40%;            /* RooMe blue */
+  --primary-foreground: 0 0% 100%;
+  --accent: 213 63% 50%;
+  --accent-foreground: 0 0% 100%;
+
+  /* Named RooMe blue variants — useful for logo / illustrations */
+  --roome-blue: 213 63% 40%;
+  --roome-blue-light: 213 63% 55%;
+  --roome-blue-dark: 215 50% 25%;
+
+  /* Neutral surfaces */
+  --background: 0 0% 100%;
+  --foreground: 215 25% 20%;
+
+  --surface: 0 0% 100%;
+  --surface-foreground: 215 25% 20%;
+
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 215 25% 20%;
+
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 213 63% 40%;
+
+  /* Status */
+  --success: 142 45% 41%;
+  --success-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-surface: hsl(var(--surface));
+  --color-surface-foreground: hsl(var(--surface-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-roome-blue: hsl(var(--roome-blue));
+  --color-roome-blue-light: hsl(var(--roome-blue-light));
+  --color-roome-blue-dark: hsl(var(--roome-blue-dark));
+
+  /* Fonts wired through from next/font in app/layout.tsx */
+  --font-sans: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-heading: var(--font-poppins), var(--font-inter), system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 html {
-  /* Prevents browsers from auto-darkening form controls based on OS theme. */
+  /* Lock the form-control color scheme to light until we ship a dark theme. */
   color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+}
+
+/*
+ * Headings auto-pick up Poppins so we don't have to thread a font utility
+ * through every page component. Falls back to Inter then system stack.
+ */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-feature-settings: "ss01" on, "cv11" on;
 }

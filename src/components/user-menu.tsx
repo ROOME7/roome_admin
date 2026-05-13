@@ -57,7 +57,7 @@ function ChevronIcon() {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-4 w-4 text-gray-400"
+      className="h-4 w-4 text-muted-foreground"
       aria-hidden="true"
     >
       <polyline points="6 9 12 15 18 9" />
@@ -121,24 +121,24 @@ export default function UserMenu({ user }: UserMenuProps) {
       {open && (
         <div
           role="menu"
-          className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
         >
           <Link
             href="/settings"
             role="menuitem"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-secondary"
           >
             <GearIcon />
             Settings
           </Link>
-          <div className="my-1 h-px bg-gray-100" />
+          <div className="my-1 h-px bg-border" />
           <button
             type="button"
             role="menuitem"
             onClick={handleSignOut}
             disabled={signingOut}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
             <SignOutIcon />
             {signingOut ? 'Signing out…' : 'Sign out'}
@@ -152,19 +152,19 @@ export default function UserMenu({ user }: UserMenuProps) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-gray-50"
+        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary"
       >
         <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-900 text-xs font-semibold text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-roome-blue-dark text-xs font-semibold text-primary-foreground"
           aria-hidden="true"
         >
           {getInitial(user.email)}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-gray-900">
+          <span className="block truncate text-sm font-medium text-foreground">
             {user.email ?? 'admin'}
           </span>
-          <span className="block truncate text-xs text-gray-500">Admin</span>
+          <span className="block truncate text-xs text-muted-foreground">Admin</span>
         </span>
         <span className="shrink-0">
           <ChevronIcon />

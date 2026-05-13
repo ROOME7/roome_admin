@@ -60,18 +60,19 @@ function ManagedIcon() {
   );
 }
 
-// Brand mark — clean text wordmark for v1. Drop in real artwork later by
-// swapping this element.
+// Brand mark — RooMe wordmark with a roome-blue square. Drop in real
+// artwork later by swapping this element; the colors come from the
+// design tokens so they stay aligned with the marketing site / app.
 function Logo() {
   return (
     <div className="flex items-center gap-2.5" aria-label="RooMe Admin">
       <span
-        className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900 text-sm font-bold text-white"
+        className="flex h-8 w-8 items-center justify-center rounded-lg bg-roome-blue text-sm font-bold text-primary-foreground shadow-sm"
         aria-hidden="true"
       >
         R
       </span>
-      <span className="text-base font-semibold tracking-tight text-gray-900">
+      <span className="text-base font-semibold tracking-tight text-foreground">
         RooMe
       </span>
     </div>
@@ -87,9 +88,9 @@ type SidebarProps = {
 
 export default function Sidebar({ user }: SidebarProps) {
   return (
-    <aside className="fixed inset-y-0 left-0 flex w-64 flex-col border-r border-gray-200 bg-white">
+    <aside className="fixed inset-y-0 left-0 flex w-64 flex-col border-r border-border bg-surface">
       {/* Logo header */}
-      <div className="flex h-16 items-center border-b border-gray-100 px-5">
+      <div className="flex h-16 items-center border-b border-border px-5">
         <Logo />
       </div>
 
@@ -112,7 +113,7 @@ export default function Sidebar({ user }: SidebarProps) {
       </nav>
 
       {/* User tile + dropdown */}
-      <div className="border-t border-gray-100 p-3">
+      <div className="border-t border-border p-3">
         <UserMenu user={user} />
       </div>
     </aside>

@@ -14,7 +14,7 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
   const session = await requireAdminSession();
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-secondary">
       <Sidebar user={{ email: session.email, uid: session.uid }} />
       <main className="ml-64">
         <div className="mx-auto max-w-6xl px-8 py-10">{children}</div>

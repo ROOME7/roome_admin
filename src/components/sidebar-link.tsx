@@ -32,13 +32,15 @@ export default function SidebarLink({
       aria-current={isActive ? 'page' : undefined}
       className={`group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
         isActive
-          ? 'bg-gray-100 text-gray-900'
-          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+          ? 'bg-secondary text-primary'
+          : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
       }`}
     >
       <span
         className={`shrink-0 transition-colors ${
-          isActive ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-600'
+          isActive
+            ? 'text-primary'
+            : 'text-muted-foreground/70 group-hover:text-foreground'
         }`}
       >
         {icon}
