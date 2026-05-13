@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/*
+ * Light-only theme for v1.
+ *
+ * The default create-next-app globals.css flipped these CSS variables on
+ * `@media (prefers-color-scheme: dark)`. That made every input field render
+ * near-white text on a white background for any admin on a dark-mode OS.
+ * Until we explicitly design + test a dark theme, we lock to light mode.
+ */
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -12,11 +21,9 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  /* Prevents browsers from auto-darkening form controls based on OS theme. */
+  color-scheme: light;
 }
 
 body {
