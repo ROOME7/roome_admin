@@ -15,6 +15,7 @@ import 'server-only';
 import { cert, getApp, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 
 function readServiceAccount() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -32,7 +33,16 @@ function readServiceAccount() {
 
 function adminAppSingleton(): App {
   if (getApps().length) return getApp();
-  return initializeApp({ credential: cert(readServiceAccount()) });
+  // Pass storageBucket explicitly when set — needed for Storage uploads on
+  // projects where the default bucket name isn't auto-resolved. The bucket
+  // name is the same one the Flutter app uses (firebase_options.dart) and
+  // is exposed to the browser as NEXT_PUBLIC_*, so no separate secret
+  // needed; we just re-read the public value server-side.
+  const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+  return initializeApp({
+    credential: cert(readServiceAccount()),
+    ...(storageBucket ? { storageBucket } : {}),
+  });
 }
 
 // Lazy getters so build-time import doesn't crash when env vars are absent
@@ -40,6 +50,7 @@ function adminAppSingleton(): App {
 let _app: App | null = null;
 let _auth: Auth | null = null;
 let _db: Firestore | null = null;
+let _storage: Storage | null = null;
 
 export function serverAdminApp(): App {
   if (!_app) _app = adminAppSingleton();
@@ -54,4 +65,9 @@ export function serverAuth(): Auth {
 export function serverDb(): Firestore {
   if (!_db) _db = getFirestore(serverAdminApp());
   return _db;
+}
+
+export function serverStorage(): Storage {
+  if (!_storage) _storage = getStorage(serverAdminApp());
+  return _storage;
 }

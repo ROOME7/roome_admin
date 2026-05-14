@@ -3,7 +3,9 @@ import type { FilterValue } from '../_lib/types';
 
 const TABS: { value: FilterValue; label: string }[] = [
   { value: 'active', label: 'Managed' },
+  { value: 'suspended', label: 'Suspended' },
   { value: 'handed_over', label: 'Handed over' },
+  { value: 'archived', label: 'Archived' },
   { value: 'all', label: 'All' },
 ];
 

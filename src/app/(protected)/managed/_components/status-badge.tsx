@@ -2,11 +2,15 @@ import type { ManagedStatus, OwnerType } from '../_lib/types';
 
 const STATUS_STYLES: Record<ManagedStatus, string> = {
   active: 'bg-primary/10 text-primary ring-primary/20',
+  suspended: 'bg-amber-500/10 text-amber-700 ring-amber-500/30',
   handed_over: 'bg-muted text-muted-foreground ring-border',
+  archived: 'bg-destructive/10 text-destructive ring-destructive/30',
 };
 const STATUS_LABELS: Record<ManagedStatus, string> = {
   active: 'Managed',
+  suspended: 'Suspended',
   handed_over: 'Handed over',
+  archived: 'Archived',
 };
 
 export function StatusBadge({ status }: { status: ManagedStatus }) {

@@ -1,9 +1,17 @@
 // Shared types for the Active Management flow. Server-only.
 
-export type ManagedStatus = 'active' | 'handed_over';
+// Order matters: archived overrides suspended overrides handed_over
+// overrides active. Use deriveStatus() to compute from the user doc.
+export type ManagedStatus = 'active' | 'suspended' | 'handed_over' | 'archived';
 export type OwnerType = 'owner_b2c' | 'owner_b2b';
 
-export const ALL_FILTERS = ['active', 'handed_over', 'all'] as const;
+export const ALL_FILTERS = [
+  'active',
+  'suspended',
+  'handed_over',
+  'archived',
+  'all',
+] as const;
 export type FilterValue = (typeof ALL_FILTERS)[number];
 
 export function asFilter(raw: string | string[] | undefined): FilterValue {
@@ -28,4 +36,14 @@ export interface ManagedAccount {
   managementHandedOverAt: Date | null;
   managementHandedOverByAdminUid: string | null;
   status: ManagedStatus;
+  adminNotes: string | null;
+  adminNotesUpdatedAt: Date | null;
+  adminNotesUpdatedByUid: string | null;
+  adminTags: string[];
+  // T2 lifecycle state
+  suspendedActive: boolean;
+  suspendedReason: string | null;
+  suspendedAt: Date | null;
+  deletedAt: Date | null;
+  deletionReason: string | null;
 }

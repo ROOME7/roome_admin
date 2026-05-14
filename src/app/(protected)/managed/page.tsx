@@ -12,12 +12,22 @@
 // All mutations live in ./actions.ts and re-verify the admin session.
 
 import 'server-only';
+import Link from 'next/link';
 import type { Timestamp } from 'firebase-admin/firestore';
 import { serverDb } from '@/lib/firebase-admin';
 import { CreateManagedAccountButton } from './_components/create-managed-account';
 import { HandoverButton } from './_components/handover-dialog';
 import { OwnerTypeBadge, StatusBadge } from './_components/status-badge';
 import { FilterTabs } from './_components/filter-tabs';
+import { EditManagedAccountButton } from './_components/edit-managed-account';
+import { NotesButton } from './_components/notes-dialog';
+import { TagsButton } from './_components/tags-dialog';
+import {
+  ArchiveButton,
+  ReactivateButton,
+  ReclaimButton,
+  SuspendButton,
+} from './_components/lifecycle-dialogs';
 import {
   asFilter,
   type FilterValue,
@@ -44,7 +54,17 @@ function deriveOwnerType(data: FirebaseFirestore.DocumentData): OwnerType {
   return 'owner_b2c';
 }
 
+function deriveStatus(
+  data: FirebaseFirestore.DocumentData
+): ManagedAccount['status'] {
+  if (data.deletedAt) return 'archived';
+  if (data.suspended && data.suspended.active === true) return 'suspended';
+  if (data.managedBy) return 'active';
+  return 'handed_over';
+}
+
 function mapDoc(uid: string, data: FirebaseFirestore.DocumentData): ManagedAccount {
+  const suspended = (data.suspended ?? {}) as Record<string, unknown>;
   return {
     uid,
     email: typeof data.email === 'string' ? data.email : '',
@@ -70,7 +90,25 @@ function mapDoc(uid: string, data: FirebaseFirestore.DocumentData): ManagedAccou
       typeof data.managementHandedOverByAdminUid === 'string'
         ? data.managementHandedOverByAdminUid
         : null,
-    status: data.managedBy ? 'active' : 'handed_over',
+    status: deriveStatus(data),
+    adminNotes: typeof data.adminNotes === 'string' ? data.adminNotes : null,
+    adminNotesUpdatedAt: tsToDate(data.adminNotesUpdatedAt),
+    adminNotesUpdatedByUid:
+      typeof data.adminNotesUpdatedByUid === 'string'
+        ? data.adminNotesUpdatedByUid
+        : null,
+    adminTags: Array.isArray(data.adminTags)
+      ? (data.adminTags as unknown[]).filter(
+          (t): t is string => typeof t === 'string'
+        )
+      : [],
+    suspendedActive: suspended.active === true,
+    suspendedReason:
+      typeof suspended.reason === 'string' ? (suspended.reason as string) : null,
+    suspendedAt: tsToDate(suspended.suspendedAt),
+    deletedAt: tsToDate(data.deletedAt),
+    deletionReason:
+      typeof data.deletionReason === 'string' ? data.deletionReason : null,
   };
 }
 
@@ -80,50 +118,61 @@ async function loadAccounts(filter: FilterValue): Promise<{
 }> {
   const db = serverDb();
 
-  // Currently managed: managedBy is a real uid string (not null).
-  // Firestore's '!=' against null works for our purposes.
-  const activeSnap = await db
-    .collection('users')
-    .where('managedBy', '!=', null)
-    .get();
-
-  // Previously managed (handed-over) — managedBy is null AND
-  // managementHandedOverAt is set. Firestore needs a compound query; we
-  // use a single != filter and post-filter the data client-side, which is
-  // fine because the volume is small.
-  const handedOverSnap = await db
-    .collection('users')
-    .where('managementHandedOverAt', '!=', null)
-    .get();
+  // Three reads, unioned by uid:
+  //   1. currently-managed (managedBy != null) — includes suspended + active
+  //   2. handed-over (managementHandedOverAt != null AND managedBy null)
+  //   3. soft-deleted (deletedAt != null) — admin-archived accounts
+  // For our scale, three reads is fine. Firestore can't AND-OR these into a
+  // single query without compound indexes that aren't worth the upkeep.
+  const [activeSnap, handedOverSnap, archivedSnap] = await Promise.all([
+    db.collection('users').where('managedBy', '!=', null).get(),
+    db.collection('users').where('managementHandedOverAt', '!=', null).get(),
+    db.collection('users').where('deletedAt', '!=', null).get(),
+  ]);
 
   const seen = new Set<string>();
   const list: ManagedAccount[] = [];
-
-  for (const doc of activeSnap.docs) {
-    if (seen.has(doc.id)) continue;
-    seen.add(doc.id);
-    list.push(mapDoc(doc.id, doc.data()));
-  }
-  for (const doc of handedOverSnap.docs) {
-    if (seen.has(doc.id)) continue;
+  const ingest = (
+    doc: FirebaseFirestore.QueryDocumentSnapshot,
+    skipIf?: (d: FirebaseFirestore.DocumentData) => boolean
+  ) => {
+    if (seen.has(doc.id)) return;
     const data = doc.data();
-    if (data.managedBy) continue; // still active, would have been in the first pass
+    if (skipIf && skipIf(data)) return;
     seen.add(doc.id);
     list.push(mapDoc(doc.id, data));
-  }
+  };
 
-  // Sort: active first (most-recent managedAt desc), then handed-over
-  // (most-recent managementHandedOverAt desc).
+  for (const doc of activeSnap.docs) ingest(doc);
+  for (const doc of handedOverSnap.docs) ingest(doc, (d) => Boolean(d.managedBy));
+  for (const doc of archivedSnap.docs) ingest(doc);
+
+  // Sort: active → suspended → handed_over → archived, within each by the
+  // most-relevant timestamp desc.
+  const order: Record<ManagedAccount['status'], number> = {
+    active: 0,
+    suspended: 1,
+    handed_over: 2,
+    archived: 3,
+  };
   list.sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
-    const at = (a.status === 'active' ? a.managedAt : a.managementHandedOverAt)?.getTime() ?? 0;
-    const bt = (b.status === 'active' ? b.managedAt : b.managementHandedOverAt)?.getTime() ?? 0;
-    return bt - at;
+    if (a.status !== b.status) return order[a.status] - order[b.status];
+    const ts = (x: ManagedAccount) =>
+      (x.status === 'archived'
+        ? x.deletedAt
+        : x.status === 'suspended'
+          ? x.suspendedAt
+          : x.status === 'handed_over'
+            ? x.managementHandedOverAt
+            : x.managedAt)?.getTime() ?? 0;
+    return ts(b) - ts(a);
   });
 
   const counts: Record<FilterValue, number> = {
     active: list.filter((x) => x.status === 'active').length,
+    suspended: list.filter((x) => x.status === 'suspended').length,
     handed_over: list.filter((x) => x.status === 'handed_over').length,
+    archived: list.filter((x) => x.status === 'archived').length,
     all: list.length,
   };
 
@@ -189,7 +238,9 @@ export default async function ManagedPage({
 function EmptyState({ filter }: { filter: FilterValue }) {
   const messages: Record<FilterValue, string> = {
     active: 'No managed accounts yet. Use "Create managed account" above to set one up.',
+    suspended: 'No accounts are currently suspended.',
     handed_over: 'No accounts have been handed over yet.',
+    archived: 'No archived accounts on record.',
     all: 'No managed accounts on record yet.',
   };
   return (
@@ -205,11 +256,19 @@ function AccountCard({ account }: { account: ManagedAccount }) {
     <article className="rounded-lg border border-border bg-surface p-5">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="truncate text-base font-semibold text-foreground">
               {displayHeader}
             </h2>
             <OwnerTypeBadge ownerType={account.ownerType} />
+            {account.adminTags.map((t) => (
+              <span
+                key={t}
+                className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                {t}
+              </span>
+            ))}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {account.email || '(no email)'}
@@ -235,32 +294,58 @@ function AccountCard({ account }: { account: ManagedAccount }) {
         )}
       </dl>
 
-      {account.status === 'active' && (
-        <footer className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
-          <ManageAsPlaceholder />
-          <HandoverButton uid={account.uid} displayName={displayHeader} />
-        </footer>
+      {account.status === 'suspended' && account.suspendedReason && (
+        <p className="mt-4 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          <span className="font-medium">Suspension reason:</span> {account.suspendedReason}
+        </p>
       )}
+      {account.status === 'archived' && account.deletionReason && (
+        <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <span className="font-medium">Archive reason:</span> {account.deletionReason}
+        </p>
+      )}
+
+      <footer className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+        {/* Notes + Tags are available on every status (audit-friendly). */}
+        <NotesButton account={account} />
+        <TagsButton account={account} />
+
+        {/* Status-specific actions: */}
+        {account.status === 'active' && (
+          <>
+            <EditManagedAccountButton account={account} />
+            <SuspendButton account={account} />
+            <ArchiveButton account={account} />
+            <OperateLink uid={account.uid} />
+            <HandoverButton uid={account.uid} displayName={displayHeader} />
+          </>
+        )}
+        {account.status === 'suspended' && (
+          <>
+            <ReactivateButton account={account} />
+            <ArchiveButton account={account} />
+          </>
+        )}
+        {account.status === 'handed_over' && (
+          <ReclaimButton account={account} />
+        )}
+        {/* Archived: no actions; row is read-only. */}
+      </footer>
     </article>
   );
 }
 
-function ManageAsPlaceholder() {
-  // Real impersonation lands in a follow-up commit (two-Firebase-Auth-instances
-  // pattern + custom-token minting + audit dashboard). Surface it as a
-  // disabled button so the UI shape is honest.
+function OperateLink({ uid }: { uid: string }) {
+  // T3-A: on-behalf actions via server-action proxy. No impersonation
+  // session; every write stamps _impersonatedByAdminUid directly on the
+  // affected doc. See docs/architecture/admin-panel-roadmap.md §T3.
   return (
-    <button
-      type="button"
-      disabled
-      title="Manage As coming next — see docs/architecture/admin-panel.md §4.3"
-      className="cursor-not-allowed rounded-md border border-dashed border-border bg-surface px-3 py-1.5 text-sm font-medium text-muted-foreground"
+    <Link
+      href={`/managed/${uid}/operate`}
+      className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
     >
-      Manage As
-      <span className="ml-1.5 inline-block rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Soon
-      </span>
-    </button>
+      Operate
+    </Link>
   );
 }
 
