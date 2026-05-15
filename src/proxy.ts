@@ -24,11 +24,12 @@ const PUBLIC_PATHS = [
   '/api/session',
   '/_next',
   '/favicon.ico',
-  // Stripe Connect onboarding return / refresh landing pages — partners
-  // (no admin session) get bounced here by Stripe after the hosted KYC
-  // flow, so they must render without an admin cookie.
-  '/connect/return',
-  '/connect/refresh',
+  // Stripe redirect landing pages under /stripe/* — partners (no admin
+  // session) get bounced here by Stripe Checkout, Customer Portal, and
+  // Connect Account Links, so they must render without an admin cookie.
+  // Covers: /stripe/subscription/{success,cancel,portal-return},
+  //         /stripe/connect/{return,refresh}.
+  '/stripe',
 ];
 
 export function proxy(req: NextRequest) {

@@ -1097,15 +1097,16 @@ export async function triggerConnectOnboarding(
     };
   }
 
-  // Default to the public landing pages we ship at the admin domain — see
-  // src/app/connect/{return,refresh}/page.tsx. Override via env to point
-  // at a different deployment (preview / staging / etc.).
+  // Default to the public landing pages we ship at the admin domain under
+  // /stripe/connect/* — see src/app/stripe/connect/{return,refresh}/page.tsx.
+  // Override via env to point at a different deployment (preview /
+  // staging / etc.).
   const refreshUrl =
     process.env.STRIPE_CONNECT_REFRESH_URL ||
-    'https://roome-admin.vercel.app/connect/refresh';
+    'https://roome-admin.vercel.app/stripe/connect/refresh';
   const returnUrl =
     process.env.STRIPE_CONNECT_RETURN_URL ||
-    'https://roome-admin.vercel.app/connect/return';
+    'https://roome-admin.vercel.app/stripe/connect/return';
 
   const stripe = serverStripe();
 
