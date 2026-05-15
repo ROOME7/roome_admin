@@ -15,10 +15,16 @@ import 'server-only';
 import Link from 'next/link';
 import type { Timestamp } from 'firebase-admin/firestore';
 import { serverDb } from '@/lib/firebase-admin';
+import { requireAdminSession } from '@/lib/auth';
 import { CreateManagedAccountButton } from './_components/create-managed-account';
 import { HandoverButton } from './_components/handover-dialog';
 import { OwnerTypeBadge, StatusBadge } from './_components/status-badge';
 import { FilterTabs } from './_components/filter-tabs';
+import { ManagedSearchInput } from './_components/search-input';
+import {
+  MineOnlyChips,
+  OwnerTypeChips,
+} from './_components/secondary-filters';
 import { EditManagedAccountButton } from './_components/edit-managed-account';
 import { NotesButton } from './_components/notes-dialog';
 import { TagsButton } from './_components/tags-dialog';
@@ -34,6 +40,7 @@ import {
   RefundsButton,
   WaiverButton,
 } from './_components/admin-power-dialogs';
+import { ActivityButton } from './_components/activity-dialog';
 import {
   asFilter,
   type FilterValue,
@@ -137,7 +144,29 @@ function mapDoc(uid: string, data: FirebaseFirestore.DocumentData): ManagedAccou
   };
 }
 
-async function loadAccounts(filter: FilterValue): Promise<{
+export interface ListFilters {
+  status: FilterValue;
+  /** Search term — matches case-insensitively on email / VAT / companyName / displayUsername. */
+  q: string;
+  /** B2C only / B2B only / both. */
+  ownerType: 'owner_b2c' | 'owner_b2b' | 'all';
+  /** When set, restrict to accounts currently managed by this admin uid. */
+  managedByAdmin: string | null;
+}
+
+function matchesQuery(account: ManagedAccount, q: string): boolean {
+  if (!q) return true;
+  const needle = q.toLowerCase();
+  return (
+    account.email.toLowerCase().includes(needle) ||
+    (account.vatNumber?.toLowerCase().includes(needle) ?? false) ||
+    (account.companyName?.toLowerCase().includes(needle) ?? false) ||
+    account.displayUsername.toLowerCase().includes(needle) ||
+    (account.fullName?.toLowerCase().includes(needle) ?? false)
+  );
+}
+
+async function loadAccounts(filters: ListFilters): Promise<{
   list: ManagedAccount[];
   counts: Record<FilterValue, number>;
 }> {
@@ -193,6 +222,9 @@ async function loadAccounts(filter: FilterValue): Promise<{
     return ts(b) - ts(a);
   });
 
+  // Pre-secondary-filter list — used for counts so the filter-tab badges
+  // always show totals across all owner types / admins / search states.
+  // (Counts that move when you type in the search box are confusing.)
   const counts: Record<FilterValue, number> = {
     active: list.filter((x) => x.status === 'active').length,
     suspended: list.filter((x) => x.status === 'suspended').length,
@@ -201,8 +233,20 @@ async function loadAccounts(filter: FilterValue): Promise<{
     all: list.length,
   };
 
-  const filtered =
-    filter === 'all' ? list : list.filter((x) => x.status === filter);
+  // Apply filters in order: status → ownerType → managedByAdmin → q.
+  let filtered =
+    filters.status === 'all'
+      ? list
+      : list.filter((x) => x.status === filters.status);
+  if (filters.ownerType !== 'all') {
+    filtered = filtered.filter((x) => x.ownerType === filters.ownerType);
+  }
+  if (filters.managedByAdmin) {
+    filtered = filtered.filter((x) => x.managedBy === filters.managedByAdmin);
+  }
+  if (filters.q) {
+    filtered = filtered.filter((x) => matchesQuery(x, filters.q));
+  }
 
   return { list: filtered, counts };
 }
@@ -217,16 +261,41 @@ function formatDate(d: Date | null): string {
   return dateFormatter.format(d);
 }
 
-type SearchParams = Promise<{ filter?: string }>;
+type SearchParams = Promise<{
+  filter?: string;
+  q?: string;
+  ownerType?: string;
+  owner?: string; // 'any' | 'mine'
+  admin?: string; // adminUid when owner=mine (passed for stable URL)
+}>;
+
+function asOwnerType(raw: string | undefined): 'owner_b2c' | 'owner_b2b' | 'all' {
+  if (raw === 'owner_b2c' || raw === 'owner_b2b') return raw;
+  return 'all';
+}
 
 export default async function ManagedPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
+  const adminSession = await requireAdminSession();
   const params = await searchParams;
   const filter = asFilter(params.filter);
-  const { list, counts } = await loadAccounts(filter);
+  const q = typeof params.q === 'string' ? params.q.trim() : '';
+  const ownerType = asOwnerType(params.ownerType);
+  const ownerMode: 'any' | 'mine' = params.owner === 'mine' ? 'mine' : 'any';
+  // managedByAdmin is gated on ownerMode=mine. We trust the admin's own
+  // session uid as the filter value rather than ?admin= so the URL can't
+  // be tampered to show "managed by anyone else".
+  const managedByAdmin = ownerMode === 'mine' ? adminSession.uid : null;
+
+  const { list, counts } = await loadAccounts({
+    status: filter,
+    q,
+    ownerType,
+    managedByAdmin,
+  });
 
   return (
     <div className="space-y-8">
@@ -245,8 +314,21 @@ export default async function ManagedPage({
 
       <FilterTabs active={filter} counts={counts} />
 
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ManagedSearchInput initial={q} />
+        <div className="flex flex-wrap items-center gap-2">
+          <OwnerTypeChips active={ownerType} />
+          <MineOnlyChips active={ownerMode} adminUid={adminSession.uid} />
+        </div>
+      </div>
+
       {list.length === 0 ? (
-        <EmptyState filter={filter} />
+        <EmptyState
+          filter={filter}
+          hasActiveFilters={
+            q.length > 0 || ownerType !== 'all' || ownerMode === 'mine'
+          }
+        />
       ) : (
         <ul className="space-y-4">
           {list.map((account) => (
@@ -260,7 +342,23 @@ export default async function ManagedPage({
   );
 }
 
-function EmptyState({ filter }: { filter: FilterValue }) {
+function EmptyState({
+  filter,
+  hasActiveFilters,
+}: {
+  filter: FilterValue;
+  hasActiveFilters: boolean;
+}) {
+  if (hasActiveFilters) {
+    return (
+      <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
+        <p className="text-sm text-muted-foreground">
+          No accounts match the current filters. Clear search and chips to see
+          everything in this status.
+        </p>
+      </section>
+    );
+  }
   const messages: Record<FilterValue, string> = {
     active: 'No managed accounts yet. Use "Create managed account" above to set one up.',
     suspended: 'No accounts are currently suspended.',
@@ -339,7 +437,8 @@ function AccountCard({ account }: { account: ManagedAccount }) {
       )}
 
       <footer className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-        {/* Notes + Tags are available on every status (audit-friendly). */}
+        {/* Activity + Notes + Tags are available on every status (audit-friendly). */}
+        <ActivityButton account={account} />
         <NotesButton account={account} />
         <TagsButton account={account} />
 

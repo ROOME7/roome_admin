@@ -1662,3 +1662,31 @@ export async function revokeAdminRole(
   revalidatePath('/admins');
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// T5 Item 17 — Per-account activity timeline
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the last N admin actions targeting a single managed account. The
+ * underlying helper lives in @/lib/audit (so dashboards + dialogs share
+ * one source); this server-action wrapper exists so the client-side
+ * activity dialog can fetch the feed on demand without bundling
+ * firebase-admin.
+ */
+export async function fetchAccountActivity(
+  targetUid: string,
+  limit = 50
+): Promise<
+  ActionResult<{
+    entries: import('@/lib/audit-format').AdminActionEntry[];
+  }>
+> {
+  await requireAdminSession();
+  if (!targetUid || typeof targetUid !== 'string') {
+    return { ok: false, error: 'Missing target user id.' };
+  }
+  const { getAccountActivity } = await import('@/lib/audit');
+  const entries = await getAccountActivity(targetUid, limit);
+  return { ok: true, entries };
+}
