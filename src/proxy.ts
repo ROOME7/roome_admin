@@ -24,6 +24,11 @@ const PUBLIC_PATHS = [
   '/api/session',
   '/_next',
   '/favicon.ico',
+  // Stripe Connect onboarding return / refresh landing pages — partners
+  // (no admin session) get bounced here by Stripe after the hosted KYC
+  // flow, so they must render without an admin cookie.
+  '/connect/return',
+  '/connect/refresh',
 ];
 
 export function proxy(req: NextRequest) {
