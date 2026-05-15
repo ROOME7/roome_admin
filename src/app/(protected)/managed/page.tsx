@@ -29,6 +29,12 @@ import {
   SuspendButton,
 } from './_components/lifecycle-dialogs';
 import {
+  ConnectOnboardingButton,
+  NotifyButton,
+  RefundsButton,
+  WaiverButton,
+} from './_components/admin-power-dialogs';
+import {
   asFilter,
   type FilterValue,
   type ManagedAccount,
@@ -109,6 +115,25 @@ function mapDoc(uid: string, data: FirebaseFirestore.DocumentData): ManagedAccou
     deletedAt: tsToDate(data.deletedAt),
     deletionReason:
       typeof data.deletionReason === 'string' ? data.deletionReason : null,
+    subscriptionWaiverActive:
+      data.subscriptionWaiver &&
+      typeof data.subscriptionWaiver === 'object' &&
+      data.subscriptionWaiver.active === true,
+    subscriptionWaiverReason:
+      data.subscriptionWaiver &&
+      typeof data.subscriptionWaiver === 'object' &&
+      typeof data.subscriptionWaiver.reason === 'string'
+        ? (data.subscriptionWaiver.reason as string)
+        : null,
+    stripeConnectAccountId:
+      typeof data.stripeConnectAccountId === 'string'
+        ? data.stripeConnectAccountId
+        : null,
+    connectChargesEnabled: data.connectChargesEnabled === true,
+    hasOwnerSubscription:
+      data.ownerSubscription &&
+      typeof data.ownerSubscription === 'object' &&
+      typeof data.ownerSubscription.stripeSubscriptionId === 'string',
   };
 }
 
@@ -261,6 +286,14 @@ function AccountCard({ account }: { account: ManagedAccount }) {
               {displayHeader}
             </h2>
             <OwnerTypeBadge ownerType={account.ownerType} />
+            {account.subscriptionWaiverActive && (
+              <span
+                title={account.subscriptionWaiverReason ?? 'Waiver active'}
+                className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-500/30"
+              >
+                Waiver
+              </span>
+            )}
             {account.adminTags.map((t) => (
               <span
                 key={t}
@@ -314,6 +347,10 @@ function AccountCard({ account }: { account: ManagedAccount }) {
         {account.status === 'active' && (
           <>
             <EditManagedAccountButton account={account} />
+            <ConnectOnboardingButton account={account} />
+            <NotifyButton account={account} />
+            <RefundsButton account={account} />
+            <WaiverButton account={account} />
             <SuspendButton account={account} />
             <ArchiveButton account={account} />
             <OperateLink uid={account.uid} />
@@ -323,13 +360,24 @@ function AccountCard({ account }: { account: ManagedAccount }) {
         {account.status === 'suspended' && (
           <>
             <ReactivateButton account={account} />
+            <WaiverButton account={account} />
+            <RefundsButton account={account} />
             <ArchiveButton account={account} />
           </>
         )}
         {account.status === 'handed_over' && (
-          <ReclaimButton account={account} />
+          <>
+            <ReclaimButton account={account} />
+            <WaiverButton account={account} />
+            <RefundsButton account={account} />
+            <NotifyButton account={account} />
+          </>
         )}
-        {/* Archived: no actions; row is read-only. */}
+        {account.status === 'archived' && (
+          // Archived rows: only refunds remain useful — admin may need to
+          // refund post-archive for goodwill / dispute resolution.
+          <RefundsButton account={account} />
+        )}
       </footer>
     </article>
   );

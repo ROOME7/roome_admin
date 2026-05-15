@@ -250,7 +250,8 @@ function ArchiveDialog({
   const [confirmText, setConfirmText] = useState('');
   const [result, setResult] = useState<{
     listingsArchived: number;
-    stripeSubReminder: boolean;
+    subscriptionCancelled: boolean;
+    subscriptionCancelError: string | null;
   } | null>(null);
 
   const heading = account.companyName ?? account.displayUsername;
@@ -263,9 +264,10 @@ function ArchiveDialog({
       if (res.ok) {
         setResult({
           listingsArchived: res.listingsArchived,
-          stripeSubReminder: res.stripeSubReminder,
+          subscriptionCancelled: res.subscriptionCancelled,
+          subscriptionCancelError: res.subscriptionCancelError,
         });
-        // No auto-close — admin needs to read the Stripe reminder.
+        // No auto-close — admin needs to read the Stripe status.
       } else {
         setError(res.error);
       }
@@ -318,13 +320,16 @@ function ArchiveDialog({
             <p className="rounded-md bg-primary/10 px-3 py-2 text-sm text-primary">
               Archived. {result.listingsArchived} listing(s) marked archived.
             </p>
-            {result.stripeSubReminder && (
+            {result.subscriptionCancelled && (
+              <p className="rounded-md bg-primary/10 px-3 py-2 text-sm text-primary">
+                Stripe subscription cancelled automatically.
+              </p>
+            )}
+            {result.subscriptionCancelError && (
               <p className="rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-700">
-                <strong>Action required — Stripe subscription:</strong> this owner
-                had an active Stripe Billing subscription that was{' '}
-                <em>not</em> auto-cancelled. Cancel it manually from the Stripe
-                Dashboard (Customers → search by email → cancel subscription).
-                A future iteration will automate this.
+                <strong>Stripe subscription cancel failed:</strong>{' '}
+                {result.subscriptionCancelError}. Cancel manually in the Stripe
+                Dashboard.
               </p>
             )}
           </div>

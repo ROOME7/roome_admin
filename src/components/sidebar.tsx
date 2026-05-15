@@ -60,6 +60,15 @@ function ManagedIcon() {
   );
 }
 
+function AdminsIcon() {
+  return (
+    <Icon>
+      <path d="M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3z" />
+      <path d="m9 12 2 2 4-4" />
+    </Icon>
+  );
+}
+
 // Brand mark — RooMe wordmark with a roome-blue square. Drop in real
 // artwork later by swapping this element; the colors come from the
 // design tokens so they stay aligned with the marketing site / app.
@@ -109,6 +118,11 @@ export default function Sidebar({ user }: SidebarProps) {
           href="/managed"
           label="Active Management"
           icon={<ManagedIcon />}
+        />
+        <SidebarLink
+          href="/admins"
+          label="Admins"
+          icon={<AdminsIcon />}
         />
       </nav>
 

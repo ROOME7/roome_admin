@@ -46,4 +46,10 @@ export interface ManagedAccount {
   suspendedAt: Date | null;
   deletedAt: Date | null;
   deletionReason: string | null;
+  // T4 admin powers state
+  subscriptionWaiverActive: boolean;
+  subscriptionWaiverReason: string | null;
+  stripeConnectAccountId: string | null;
+  connectChargesEnabled: boolean;
+  hasOwnerSubscription: boolean;
 }

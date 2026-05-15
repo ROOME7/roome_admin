@@ -24,7 +24,8 @@ import crypto from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { requireAdminSession } from '@/lib/auth';
-import { serverAuth, serverDb } from '@/lib/firebase-admin';
+import { serverAuth, serverDb, serverMessaging } from '@/lib/firebase-admin';
+import { serverStripe } from '@/lib/stripe';
 import { recordAdminAction } from '@/lib/audit';
 
 type ActionResult<T = unknown> =
@@ -761,7 +762,13 @@ async function archiveOwnerListingsForAdmin(
 export async function archiveManagedAccount(
   targetUid: string,
   reason: string
-): Promise<ActionResult<{ listingsArchived: number; stripeSubReminder: boolean }>> {
+): Promise<
+  ActionResult<{
+    listingsArchived: number;
+    subscriptionCancelled: boolean;
+    subscriptionCancelError: string | null;
+  }>
+> {
   const adminSession = await requireAdminSession();
 
   if (!targetUid || typeof targetUid !== 'string') {
@@ -807,24 +814,75 @@ export async function archiveManagedAccount(
     adminSession.uid
   );
 
-  // Surface to the admin UI whether they need to chase the Stripe sub
-  // cancellation in the Stripe Dashboard. True iff the user has a live
-  // ownerSubscription record indicating an active billing relationship.
+  // Auto-cancel any active owner-sub via Stripe SDK. Was deferred in T2.5
+  // (no Stripe SDK in admin panel at the time) — wired up in T4 alongside
+  // refunds + Connect onboarding which need the same dependency.
   const subStatus = existing.ownerSubscription?.status as string | undefined;
-  const stripeSubReminder =
-    subStatus === 'active' ||
-    subStatus === 'trialing' ||
-    subStatus === 'past_due';
+  const subId = existing.ownerSubscription?.stripeSubscriptionId as
+    | string
+    | undefined;
+  let subscriptionCancelled = false;
+  let subscriptionCancelError: string | null = null;
+  if (
+    subId &&
+    (subStatus === 'active' ||
+      subStatus === 'trialing' ||
+      subStatus === 'past_due')
+  ) {
+    try {
+      // Cancel immediately, not at period end — archival is terminal; we
+      // don't want a grace period that would re-pause listings on a
+      // canceled+grace timeline.
+      await serverStripe().subscriptions.cancel(subId, {
+        invoice_now: false,
+        prorate: true,
+      });
+      subscriptionCancelled = true;
+      // Mirror state immediately so the admin UI reflects the cancel
+      // without waiting for the webhook (the customer.subscription.deleted
+      // handler will write the same state shortly).
+      await userRef.set(
+        {
+          ownerSubscription: {
+            ...(existing.ownerSubscription ?? {}),
+            status: 'canceled',
+            stripeSubscriptionId: subId,
+          },
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      subscriptionCancelError =
+        e instanceof Error ? e.message : String(e);
+      console.error(
+        '[managed.archive] Stripe subscription cancel failed:',
+        e
+      );
+      // Non-fatal: archive still proceeds. Admin sees the error in the
+      // dialog and can chase it on the Stripe Dashboard.
+    }
+  }
 
   await recordAdminAction({
     adminUid: adminSession.uid,
     targetUid,
     action: 'archive',
-    payload: { reason: cleanedReason, listingsArchived, stripeSubReminder },
+    payload: {
+      reason: cleanedReason,
+      listingsArchived,
+      stripeSubscriptionId: subId ?? null,
+      subscriptionCancelled,
+      subscriptionCancelError,
+    },
   });
 
   revalidatePath('/managed');
-  return { ok: true, listingsArchived, stripeSubReminder };
+  return {
+    ok: true,
+    listingsArchived,
+    subscriptionCancelled,
+    subscriptionCancelError,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -896,5 +954,707 @@ export async function reclaimManagedAccount(
   });
 
   revalidatePath('/managed');
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// T4 — Admin powers
+// ---------------------------------------------------------------------------
+//
+// All five operations target a single account (not a session / not on-behalf):
+//   - Item 11: setSubscriptionWaiver — manual €150/yr waiver toggle
+//   - Item 12: triggerConnectOnboarding — Stripe Connect link to partner
+//   - Item 13: refundOwnerSubInvoice — refund a €150 owner-sub invoice
+//   - Item 14: sendPartnerNotification — custom FCM push to partner
+//   - Item 15: grantAdminRole / revokeAdminRole — promote/demote team
+//
+// All call recordAdminAction so adminAccountActions has a full trail.
+//
+// See docs/architecture/admin-panel-roadmap.md §T4 for design notes.
+// ---------------------------------------------------------------------------
+
+const MAX_FCM_TITLE = 60;
+const MAX_FCM_BODY = 240;
+
+// Helper used by every T4 action: load the user doc, refuse early when the
+// account state precludes the requested admin power. Each action picks
+// which guards apply (e.g. waiver toggle is fine on archived accounts;
+// refund is fine on archived accounts; FCM send refuses on archived).
+async function loadTarget(targetUid: string): Promise<
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      ref: FirebaseFirestore.DocumentReference;
+      data: FirebaseFirestore.DocumentData;
+    }
+> {
+  if (!targetUid || typeof targetUid !== 'string') {
+    return { ok: false, error: 'Missing target user id.' };
+  }
+  const db = serverDb();
+  const ref = db.collection('users').doc(targetUid);
+  const snap = await ref.get();
+  if (!snap.exists) return { ok: false, error: 'User not found.' };
+  return { ok: true, ref, data: snap.data() ?? {} };
+}
+
+// ---------------------------------------------------------------------------
+// Item 11 — setSubscriptionWaiver
+//
+// Manually toggles the €150/yr waiver independently of managedBy. Used
+// post-handover for strategic partners; bypasses the gate in
+// assertCanPublishListing (which checks user.subscriptionWaiver.active
+// before any other rule).
+// ---------------------------------------------------------------------------
+
+export async function setSubscriptionWaiver(
+  targetUid: string,
+  active: boolean,
+  reason: string | null
+): Promise<ActionResult<{ active: boolean }>> {
+  const adminSession = await requireAdminSession();
+
+  const target = await loadTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+  const { ref, data } = target;
+
+  // No need to refuse on suspended/archived — waiver state is metadata
+  // and doesn't affect the suspended/archived guards (which come earlier
+  // in the publish gate).
+
+  const cleanedReason = (reason ?? '').trim().slice(0, 1_000);
+  if (active && cleanedReason.length < 3) {
+    return {
+      ok: false,
+      error: 'A reason is required when granting the waiver (3+ chars).',
+    };
+  }
+
+  const previousActive = data.subscriptionWaiver?.active === true;
+  if (active === previousActive) {
+    return {
+      ok: false,
+      error: active
+        ? 'Waiver is already active.'
+        : 'Waiver is already inactive.',
+    };
+  }
+
+  await ref.set(
+    {
+      subscriptionWaiver: {
+        active,
+        reason: active ? cleanedReason : null,
+        grantedAt: active ? FieldValue.serverTimestamp() : null,
+        grantedByAdminUid: active ? adminSession.uid : null,
+      },
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'set_waiver',
+    payload: { active, reason: active ? cleanedReason : null },
+  });
+
+  revalidatePath('/managed');
+  return { ok: true, active };
+}
+
+// ---------------------------------------------------------------------------
+// Item 12 — triggerConnectOnboarding
+//
+// Make sure the partner has a Stripe Connect Express account, generate a
+// fresh Account Link, and push it to them via FCM so they can complete KYC
+// + bank linking from their mobile app. Idempotent: re-running on a
+// partner with an existing account just generates a new link.
+// ---------------------------------------------------------------------------
+
+export async function triggerConnectOnboarding(
+  targetUid: string
+): Promise<ActionResult<{ accountId: string; onboardingUrl: string }>> {
+  const adminSession = await requireAdminSession();
+
+  const target = await loadTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+  const { ref, data } = target;
+
+  if (data.suspended?.active) {
+    return { ok: false, error: 'Cannot onboard a suspended account.' };
+  }
+  if (data.deletedAt) {
+    return { ok: false, error: 'Cannot onboard an archived account.' };
+  }
+
+  const roles = Array.isArray(data.roles) ? (data.roles as string[]) : [];
+  if (!roles.some((r) => r.startsWith('owner_'))) {
+    return {
+      ok: false,
+      error: 'Connect onboarding is only for owner accounts.',
+    };
+  }
+
+  const refreshUrl =
+    process.env.STRIPE_CONNECT_REFRESH_URL ||
+    'https://roome.app/admin/connect/refresh';
+  const returnUrl =
+    process.env.STRIPE_CONNECT_RETURN_URL ||
+    'https://roome.app/admin/connect/return';
+
+  const stripe = serverStripe();
+
+  // Reuse the existing account, or create a fresh Express account if the
+  // partner has never started Connect onboarding before.
+  let accountId: string;
+  if (typeof data.stripeConnectAccountId === 'string' && data.stripeConnectAccountId) {
+    accountId = data.stripeConnectAccountId;
+  } else {
+    try {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'IT',
+        email: typeof data.email === 'string' ? data.email : undefined,
+        metadata: {
+          firebaseUid: targetUid,
+          createdByAdminUid: adminSession.uid,
+        },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+          sepa_debit_payments: { requested: true },
+        },
+        business_type: roles.includes('owner_b2b') ? 'company' : 'individual',
+      });
+      accountId = account.id;
+      await ref.set(
+        {
+          stripeConnectAccountId: accountId,
+          connectChargesEnabled: false,
+          connectPayoutsEnabled: false,
+          connectRejected: false,
+          connectRejectionReason: null,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[managed.connect] account create failed:', e);
+      return { ok: false, error: `Stripe account create failed: ${msg}` };
+    }
+  }
+
+  // Generate a fresh Account Link. Account Links are short-lived and
+  // single-use — partner clicks once, completes flow, link expires.
+  let onboardingUrl: string;
+  try {
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
+      type: 'account_onboarding',
+    });
+    onboardingUrl = link.url;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[managed.connect] account link failed:', e);
+    return { ok: false, error: `Stripe Account Link failed: ${msg}` };
+  }
+
+  // Best-effort push notification — FCM failure should not block the
+  // return path because the admin will probably also share the link via
+  // another channel (email / WhatsApp).
+  const db = serverDb();
+  await db.collection('notifications').add({
+    toUid: targetUid,
+    kind: 'connect_onboarding_link',
+    title: 'Finalizza la verifica del tuo account RooMe',
+    body: 'Apri il link per completare la verifica Stripe e abilitare l’incasso dei canoni.',
+    data: { url: onboardingUrl, kind: 'connect_onboarding_link' },
+    createdAt: FieldValue.serverTimestamp(),
+    sentByAdminUid: adminSession.uid,
+  });
+  try {
+    const token = typeof data.fcmToken === 'string' ? data.fcmToken : null;
+    if (token) {
+      await serverMessaging().send({
+        token,
+        notification: {
+          title: 'Finalizza la verifica del tuo account RooMe',
+          body: 'Tocca per aprire il link Stripe.',
+        },
+        data: {
+          kind: 'connect_onboarding_link',
+          url: onboardingUrl,
+        },
+      });
+    }
+  } catch (e) {
+    console.warn('[managed.connect] FCM send failed (non-fatal):', e);
+  }
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'trigger_connect_onboarding',
+    payload: { accountId, onboardingUrl },
+  });
+
+  revalidatePath('/managed');
+  return { ok: true, accountId, onboardingUrl };
+}
+
+// ---------------------------------------------------------------------------
+// Item 14 — sendPartnerNotification
+//
+// Writes a notifications doc + best-effort FCM push. Used for "please
+// verify your IBAN", "we need a clarification on listing X", etc.
+// ---------------------------------------------------------------------------
+
+export async function sendPartnerNotification(
+  targetUid: string,
+  title: string,
+  body: string,
+  deepLink?: string | null
+): Promise<ActionResult<{ delivered: boolean }>> {
+  const adminSession = await requireAdminSession();
+
+  const target = await loadTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+  const { data } = target;
+
+  if (data.suspended?.active) {
+    return {
+      ok: false,
+      error: 'Cannot notify a suspended account (they cannot sign in to read it).',
+    };
+  }
+  if (data.deletedAt) {
+    return { ok: false, error: 'Cannot notify an archived account.' };
+  }
+
+  const cleanedTitle = (title ?? '').trim().slice(0, MAX_FCM_TITLE);
+  const cleanedBody = (body ?? '').trim().slice(0, MAX_FCM_BODY);
+  if (cleanedTitle.length < 3) {
+    return { ok: false, error: 'Title must be at least 3 characters.' };
+  }
+  if (cleanedBody.length < 3) {
+    return { ok: false, error: 'Body must be at least 3 characters.' };
+  }
+  const cleanedDeepLink =
+    typeof deepLink === 'string' && deepLink.trim().length > 0
+      ? deepLink.trim().slice(0, 500)
+      : null;
+
+  const db = serverDb();
+  const notifRef = db.collection('notifications').doc();
+  await notifRef.set({
+    toUid: targetUid,
+    kind: 'admin_message',
+    title: cleanedTitle,
+    body: cleanedBody,
+    data: cleanedDeepLink ? { deepLink: cleanedDeepLink } : {},
+    createdAt: FieldValue.serverTimestamp(),
+    sentByAdminUid: adminSession.uid,
+  });
+
+  let delivered = false;
+  try {
+    const token = typeof data.fcmToken === 'string' ? data.fcmToken : null;
+    if (token) {
+      await serverMessaging().send({
+        token,
+        notification: { title: cleanedTitle, body: cleanedBody },
+        data: {
+          kind: 'admin_message',
+          ...(cleanedDeepLink ? { deepLink: cleanedDeepLink } : {}),
+        },
+      });
+      delivered = true;
+    }
+  } catch (e) {
+    console.warn('[managed.notify] FCM send failed (non-fatal):', e);
+  }
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'notify',
+    payload: {
+      title: cleanedTitle,
+      body: cleanedBody,
+      deepLink: cleanedDeepLink,
+      delivered,
+    },
+  });
+
+  revalidatePath('/managed');
+  return { ok: true, delivered };
+}
+
+// ---------------------------------------------------------------------------
+// Item 13 — refundOwnerSubInvoice
+//
+// Refund a single €150 owner-subscription invoice fully or partially via
+// Stripe SDK. We do NOT auto-cancel the subscription itself here — that's
+// archiveManagedAccount's job. A refund without cancellation is a valid
+// scenario (mid-year goodwill credit).
+// ---------------------------------------------------------------------------
+
+export interface SubInvoiceSummary {
+  invoiceId: string;
+  number: string | null;
+  paymentIntentId: string | null;
+  amountPaid: number; // cents
+  amountRemaining: number; // cents (= paid - already-refunded)
+  currency: string;
+  created: number; // unix seconds
+  status: string;
+  refundedSoFar: number; // cents
+}
+
+export async function listOwnerSubInvoices(
+  targetUid: string,
+  limit = 12
+): Promise<ActionResult<{ invoices: SubInvoiceSummary[] }>> {
+  await requireAdminSession();
+
+  const target = await loadTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+  const { data } = target;
+
+  const customerId = typeof data.stripeCustomerId === 'string'
+    ? data.stripeCustomerId
+    : null;
+  if (!customerId) {
+    return { ok: true, invoices: [] };
+  }
+
+  const stripe = serverStripe();
+  let invoices;
+  try {
+    invoices = await stripe.invoices.list({
+      customer: customerId,
+      limit: Math.max(1, Math.min(limit, 100)),
+      expand: ['data.payment_intent'],
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[managed.listInvoices] stripe.invoices.list failed:', e);
+    return { ok: false, error: `Stripe error: ${msg}` };
+  }
+
+  // Cross-reference: pull refunds for each invoice's PaymentIntent so we
+  // can show "refundedSoFar" + cap partial refunds.
+  const out: SubInvoiceSummary[] = [];
+  for (const inv of invoices.data) {
+    let piId: string | null = null;
+    if (typeof inv.payment_intent === 'string') piId = inv.payment_intent;
+    else if (inv.payment_intent && typeof inv.payment_intent === 'object')
+      piId = inv.payment_intent.id ?? null;
+
+    let refundedSoFar = 0;
+    if (piId) {
+      try {
+        const refunds = await stripe.refunds.list({
+          payment_intent: piId,
+          limit: 100,
+        });
+        for (const r of refunds.data) {
+          if (r.status === 'succeeded' || r.status === 'pending') {
+            refundedSoFar += r.amount;
+          }
+        }
+      } catch (e) {
+        console.warn('[managed.listInvoices] refunds.list failed:', e);
+      }
+    }
+
+    out.push({
+      invoiceId: inv.id || '',
+      number: inv.number ?? null,
+      paymentIntentId: piId,
+      amountPaid: inv.amount_paid ?? 0,
+      amountRemaining: Math.max(0, (inv.amount_paid ?? 0) - refundedSoFar),
+      currency: inv.currency ?? 'eur',
+      created: inv.created ?? 0,
+      status: inv.status ?? 'unknown',
+      refundedSoFar,
+    });
+  }
+
+  return { ok: true, invoices: out };
+}
+
+export async function refundOwnerSubInvoice(
+  targetUid: string,
+  invoiceId: string,
+  amountCents: number | 'full',
+  reason: string
+): Promise<ActionResult<{ refundId: string; amountRefunded: number }>> {
+  const adminSession = await requireAdminSession();
+
+  const target = await loadTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+
+  if (typeof invoiceId !== 'string' || !invoiceId) {
+    return { ok: false, error: 'Missing invoiceId.' };
+  }
+  const cleanedReason = (reason ?? '').trim().slice(0, 1_000);
+  if (cleanedReason.length < 3) {
+    return {
+      ok: false,
+      error: 'A reason is required (3+ characters).',
+    };
+  }
+
+  const stripe = serverStripe();
+  let invoice;
+  try {
+    invoice = await stripe.invoices.retrieve(invoiceId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `Could not load invoice: ${msg}` };
+  }
+
+  const piRaw = invoice.payment_intent;
+  const piId =
+    typeof piRaw === 'string'
+      ? piRaw
+      : piRaw && typeof piRaw === 'object'
+        ? (piRaw.id ?? null)
+        : null;
+  if (!piId) {
+    return {
+      ok: false,
+      error: 'Invoice has no payment_intent — nothing to refund.',
+    };
+  }
+
+  // Cap the refund at amount_paid - already_refunded.
+  let alreadyRefunded = 0;
+  try {
+    const refunds = await stripe.refunds.list({
+      payment_intent: piId,
+      limit: 100,
+    });
+    for (const r of refunds.data) {
+      if (r.status === 'succeeded' || r.status === 'pending') {
+        alreadyRefunded += r.amount;
+      }
+    }
+  } catch (e) {
+    console.warn('[managed.refund] refunds.list failed:', e);
+  }
+  const refundableCeiling = Math.max(
+    0,
+    (invoice.amount_paid ?? 0) - alreadyRefunded
+  );
+  if (refundableCeiling === 0) {
+    return { ok: false, error: 'This invoice has already been fully refunded.' };
+  }
+
+  const refundAmount =
+    amountCents === 'full' ? refundableCeiling : amountCents;
+  if (
+    typeof refundAmount !== 'number' ||
+    refundAmount <= 0 ||
+    refundAmount > refundableCeiling
+  ) {
+    return {
+      ok: false,
+      error: `Refund amount must be 1..${refundableCeiling} cents.`,
+    };
+  }
+
+  let refundId: string;
+  try {
+    const refund = await stripe.refunds.create({
+      payment_intent: piId,
+      amount: refundAmount,
+      reason: 'requested_by_customer',
+      metadata: {
+        firebaseUid: targetUid,
+        invoiceId,
+        triggeredByAdminUid: adminSession.uid,
+        adminReason: cleanedReason,
+      },
+    });
+    refundId = refund.id;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[managed.refund] stripe.refunds.create failed:', e);
+    return { ok: false, error: `Refund failed: ${msg}` };
+  }
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'refund',
+    payload: {
+      invoiceId,
+      paymentIntentId: piId,
+      amountCents: refundAmount,
+      refundId,
+      reason: cleanedReason,
+    },
+  });
+
+  revalidatePath('/managed');
+  return { ok: true, refundId, amountRefunded: refundAmount };
+}
+
+// ---------------------------------------------------------------------------
+// Item 15 — grantAdminRole / revokeAdminRole
+//
+// Adds / removes the 'admin' role on the target user's custom claims and
+// writes an audit entry to adminRoleChanges (the dedicated audit collection,
+// not adminAccountActions — the rules already isolate it server-only).
+//
+// Refuses self-revoke as a basic foot-gun guard. Bootstrap of the very
+// first admin is handled by the existing Cloud Function — this path is
+// for promoting / demoting team members.
+// ---------------------------------------------------------------------------
+
+export async function grantAdminRoleByEmail(
+  email: string
+): Promise<ActionResult<{ uid: string }>> {
+  const adminSession = await requireAdminSession();
+
+  const cleanedEmail = (email ?? '').trim().toLowerCase();
+  if (!EMAIL_RE.test(cleanedEmail)) {
+    return { ok: false, error: 'Invalid email address.' };
+  }
+
+  const auth = serverAuth();
+  let userRecord;
+  try {
+    userRecord = await auth.getUserByEmail(cleanedEmail);
+  } catch (e: unknown) {
+    if (
+      typeof e === 'object' &&
+      e !== null &&
+      'code' in e &&
+      (e as { code: string }).code === 'auth/user-not-found'
+    ) {
+      return {
+        ok: false,
+        error: `No Firebase Auth user exists with email ${cleanedEmail}.`,
+      };
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `Auth lookup failed: ${msg}` };
+  }
+
+  const targetUid = userRecord.uid;
+  if (targetUid === adminSession.uid) {
+    return {
+      ok: false,
+      error: 'You already have admin role on your own account.',
+    };
+  }
+
+  const existingClaims = userRecord.customClaims ?? {};
+  const existingRoles = Array.isArray(existingClaims.roles)
+    ? (existingClaims.roles as string[])
+    : [];
+  if (existingRoles.includes('admin')) {
+    return { ok: false, error: 'User is already an admin.' };
+  }
+
+  const newRoles = [...new Set([...existingRoles, 'admin'])];
+  try {
+    await auth.setCustomUserClaims(targetUid, {
+      ...existingClaims,
+      roles: newRoles,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `Could not set custom claims: ${msg}` };
+  }
+
+  const db = serverDb();
+  await db.collection('adminRoleChanges').add({
+    action: 'grant',
+    targetUid,
+    targetEmail: cleanedEmail,
+    byUid: adminSession.uid,
+    at: FieldValue.serverTimestamp(),
+  });
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'grant_admin',
+    payload: { email: cleanedEmail },
+  });
+
+  revalidatePath('/admins');
+  return { ok: true, uid: targetUid };
+}
+
+export async function revokeAdminRole(
+  targetUid: string
+): Promise<ActionResult> {
+  const adminSession = await requireAdminSession();
+
+  if (!targetUid || typeof targetUid !== 'string') {
+    return { ok: false, error: 'Missing target user id.' };
+  }
+  if (targetUid === adminSession.uid) {
+    return {
+      ok: false,
+      error: 'Self-revoke not allowed. Ask another admin to revoke your role.',
+    };
+  }
+
+  const auth = serverAuth();
+  let userRecord;
+  try {
+    userRecord = await auth.getUser(targetUid);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `Auth lookup failed: ${msg}` };
+  }
+
+  const existingClaims = userRecord.customClaims ?? {};
+  const existingRoles = Array.isArray(existingClaims.roles)
+    ? (existingClaims.roles as string[])
+    : [];
+  if (!existingRoles.includes('admin')) {
+    return { ok: false, error: 'User is not an admin.' };
+  }
+
+  const newRoles = existingRoles.filter((r) => r !== 'admin');
+  try {
+    await auth.setCustomUserClaims(targetUid, {
+      ...existingClaims,
+      roles: newRoles,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `Could not set custom claims: ${msg}` };
+  }
+
+  const db = serverDb();
+  await db.collection('adminRoleChanges').add({
+    action: 'revoke',
+    targetUid,
+    targetEmail: userRecord.email ?? null,
+    byUid: adminSession.uid,
+    at: FieldValue.serverTimestamp(),
+  });
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'revoke_admin',
+    payload: {},
+  });
+
+  revalidatePath('/admins');
   return { ok: true };
 }

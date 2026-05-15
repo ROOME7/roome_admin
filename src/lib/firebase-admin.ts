@@ -16,6 +16,7 @@ import { cert, getApp, getApps, initializeApp, type App } from 'firebase-admin/a
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getStorage, type Storage } from 'firebase-admin/storage';
+import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 
 function readServiceAccount() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -51,6 +52,7 @@ let _app: App | null = null;
 let _auth: Auth | null = null;
 let _db: Firestore | null = null;
 let _storage: Storage | null = null;
+let _messaging: Messaging | null = null;
 
 export function serverAdminApp(): App {
   if (!_app) _app = adminAppSingleton();
@@ -70,4 +72,9 @@ export function serverDb(): Firestore {
 export function serverStorage(): Storage {
   if (!_storage) _storage = getStorage(serverAdminApp());
   return _storage;
+}
+
+export function serverMessaging(): Messaging {
+  if (!_messaging) _messaging = getMessaging(serverAdminApp());
+  return _messaging;
 }
