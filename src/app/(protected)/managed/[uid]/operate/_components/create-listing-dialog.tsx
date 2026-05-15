@@ -155,10 +155,11 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
           creation.
         </p>
 
-        <fieldset className="mt-5 space-y-4 rounded-md border border-border p-4">
+        <fieldset className="mt-5 space-y-3 rounded-md border border-border p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Address
           </legend>
+          {/* Row 1: Region | Province */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Region" required>
               <input
@@ -182,6 +183,9 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 placeholder="e.g. Milano"
               />
             </Field>
+          </div>
+          {/* Row 2: City | Postal code (group cognitively) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">
             <Field label="City" required>
               <input
                 type="text"
@@ -190,17 +194,23 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setCity(e.target.value)}
                 disabled={pending}
                 className="input"
+                placeholder="e.g. Milano"
               />
             </Field>
-            <Field label="Neighborhood" hint="Optional">
+            <Field label="Postal code" required>
               <input
                 type="text"
-                value={neighborhood}
-                onChange={(e) => setNeighborhood(e.target.value)}
+                required
+                value={postalCode}
+                onChange={(e) => setPostalCode(e.target.value)}
                 disabled={pending}
-                className="input"
+                className="input font-mono"
+                placeholder="20121"
               />
             </Field>
+          </div>
+          {/* Row 3: Street | Street number */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">
             <Field label="Street" required>
               <input
                 type="text"
@@ -209,6 +219,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setStreet(e.target.value)}
                 disabled={pending}
                 className="input"
+                placeholder="Via Roma"
               />
             </Field>
             <Field label="Street number" required>
@@ -219,20 +230,21 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setStreetNumber(e.target.value)}
                 disabled={pending}
                 className="input"
-              />
-            </Field>
-            <Field label="Postal code" required>
-              <input
-                type="text"
-                required
-                value={postalCode}
-                onChange={(e) => setPostalCode(e.target.value)}
-                disabled={pending}
-                className="input"
-                placeholder="e.g. 20121"
+                placeholder="12"
               />
             </Field>
           </div>
+          {/* Row 4: Neighborhood (optional, full width) */}
+          <Field label="Neighborhood" hint="Optional">
+            <input
+              type="text"
+              value={neighborhood}
+              onChange={(e) => setNeighborhood(e.target.value)}
+              disabled={pending}
+              className="input"
+              placeholder="e.g. Navigli"
+            />
+          </Field>
         </fieldset>
 
         <fieldset className="mt-5 space-y-4 rounded-md border border-border p-4">
@@ -325,69 +337,95 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
           {rooms.map((r, idx) => (
             <div
               key={r.id}
-              className="grid grid-cols-1 gap-3 rounded-md border border-border bg-surface p-3 sm:grid-cols-6"
+              className="space-y-3 rounded-md border border-border bg-surface p-4"
             >
-              <Field label={`Room ${idx + 1} — Type`} required>
-                <select
-                  value={r.type}
-                  onChange={(e) =>
-                    updateRoom(idx, {
-                      type: e.target.value as RoomDraft['type'],
-                    })
-                  }
-                  disabled={pending}
-                  className="input"
-                >
-                  <option value="single">Single</option>
-                  <option value="double">Double</option>
-                  <option value="master">Master</option>
-                </select>
-              </Field>
-              <Field label="Price / person (€)" required>
-                <input
-                  type="number"
-                  min={1}
-                  step="0.01"
-                  required
-                  value={r.priceEuros}
-                  onChange={(e) => updateRoom(idx, { priceEuros: e.target.value })}
-                  disabled={pending}
-                  className="input"
-                />
-              </Field>
-              <Field label="Bed count" required hint="1–6">
-                <input
-                  type="number"
-                  min={1}
-                  max={6}
-                  required
-                  value={r.bedCount}
-                  onChange={(e) => updateRoom(idx, { bedCount: e.target.value })}
-                  disabled={pending}
-                  className="input"
-                />
-              </Field>
-              <div className="sm:col-span-2">
-                <Field label="Room description" hint="Optional">
+              {/* Header: Room N label + Remove (only when >1 room) */}
+              <header className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold text-foreground">
+                  Room {idx + 1}
+                </h4>
+                {rooms.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeRoom(idx)}
+                    disabled={pending}
+                    className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+                )}
+              </header>
+
+              {/* Body row 1: Type | Price | Beds — proportional widths */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_6rem]">
+                <Field label="Type" required>
+                  <select
+                    value={r.type}
+                    onChange={(e) =>
+                      updateRoom(idx, {
+                        type: e.target.value as RoomDraft['type'],
+                      })
+                    }
+                    disabled={pending}
+                    className="input"
+                  >
+                    <option value="single">Single</option>
+                    <option value="double">Double</option>
+                    <option value="master">Master</option>
+                  </select>
+                </Field>
+                <Field label="Price / person" required>
+                  <div className="relative mt-1.5">
+                    <span
+                      className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground"
+                      aria-hidden
+                    >
+                      €
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      step="0.01"
+                      required
+                      value={r.priceEuros}
+                      onChange={(e) =>
+                        updateRoom(idx, { priceEuros: e.target.value })
+                      }
+                      disabled={pending}
+                      className="input pl-7"
+                      placeholder="150.00"
+                    />
+                  </div>
+                </Field>
+                <Field label="Beds" required hint="1–6">
                   <input
-                    type="text"
-                    value={r.description}
-                    onChange={(e) => updateRoom(idx, { description: e.target.value })}
+                    type="number"
+                    min={1}
+                    max={6}
+                    required
+                    value={r.bedCount}
+                    onChange={(e) =>
+                      updateRoom(idx, { bedCount: e.target.value })
+                    }
                     disabled={pending}
                     className="input"
                   />
                 </Field>
               </div>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={() => removeRoom(idx)}
-                  disabled={pending || rooms.length <= 1}
-                  className="w-full rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Remove
-                </button>
-              </div>
+
+              {/* Body row 2: Description, full width */}
+              <Field label="Room description" hint="Optional">
+                <input
+                  type="text"
+                  value={r.description}
+                  onChange={(e) =>
+                    updateRoom(idx, { description: e.target.value })
+                  }
+                  disabled={pending}
+                  className="input"
+                  placeholder="e.g. South-facing, en-suite bathroom"
+                />
+              </Field>
             </div>
           ))}
           <button
