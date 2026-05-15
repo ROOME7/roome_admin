@@ -71,17 +71,23 @@ async function loadPartner(uid: string) {
 async function loadChats(uid: string): Promise<OperateChatsSummary[]> {
   const db = serverDb();
   // Partner may be tenant or landlord in any given chat. Two queries.
+  //
+  // NOTE: we deliberately don't .orderBy('updatedAt') here even though we
+  // want most-recent-first, because the composite indexes
+  // (landlordId/tenantId × updatedAt desc) aren't deployed yet — see
+  // firestore.indexes.json. Sort happens in memory after the union below.
+  // For partner volumes under ~50 chats this is fine. To restore proper
+  // ordering+pagination, run `firebase deploy --only firestore:indexes`
+  // and put the .orderBy back.
   const [asLandlord, asTenant] = await Promise.all([
     db
       .collection('chats')
       .where('landlordId', '==', uid)
-      .orderBy('updatedAt', 'desc')
       .limit(50)
       .get(),
     db
       .collection('chats')
       .where('tenantId', '==', uid)
-      .orderBy('updatedAt', 'desc')
       .limit(50)
       .get(),
   ]);
@@ -164,15 +170,18 @@ async function loadApplications(
   uid: string
 ): Promise<OperateApplicationSummary[]> {
   const db = serverDb();
+  // Same caveat as loadChats: no .orderBy('appliedAt') here because the
+  // composite index (landlordId × status × appliedAt desc) isn't deployed
+  // yet. Sort in memory below. See firestore.indexes.json for the
+  // pre-staged index definition.
   const snap = await db
     .collection('contracts')
     .where('landlordId', '==', uid)
     .where('status', '==', 'pending')
-    .orderBy('appliedAt', 'desc')
     .limit(50)
     .get();
 
-  return snap.docs.map((doc) => {
+  const out = snap.docs.map((doc) => {
     const d = doc.data();
     return {
       contractId: doc.id,
@@ -184,6 +193,10 @@ async function loadApplications(
       appliedAt: tsToDate(d.appliedAt),
     };
   });
+  out.sort(
+    (a, b) => (b.appliedAt?.getTime() ?? 0) - (a.appliedAt?.getTime() ?? 0)
+  );
+  return out;
 }
 
 type SearchParams = Promise<{ tab?: string }>;
