@@ -15,6 +15,7 @@ import { revalidatePath } from 'next/cache';
 import { FieldValue } from 'firebase-admin/firestore';
 import { requireAdminSession } from '@/lib/auth';
 import { serverDb, serverStorage } from '@/lib/firebase-admin';
+import { serverStripe } from '@/lib/stripe';
 import { recordAdminAction } from '@/lib/audit';
 
 type ActionResult<T = unknown> =
@@ -443,8 +444,6 @@ export interface OperateApplicationSummary {
   appliedAt: Date | null;
 }
 
-export type { ActionResult };
-
 // ---------------------------------------------------------------------------
 // Item 11-T3B: publishListingAs
 //
@@ -814,4 +813,352 @@ export async function uploadListingPhotoAs(
     photoUrl: publicUrl,
     photoCount: existingCount + 1,
   };
+}
+
+// ---------------------------------------------------------------------------
+// T6 — Stripe state snapshot (read-only)
+//
+// Pulls everything the admin needs to know about this partner's Stripe
+// footprint in a single server call: customer, owner subscription, Connect
+// account, recent invoices, recent rent payments, recent disputes. Each
+// section is fetched best-effort — if Stripe returns 4xx/5xx for one,
+// that section surfaces an error string and the rest still renders.
+//
+// All reads. No writes. Cached implicitly by Next.js per-request; the page
+// re-fetches on navigation.
+// ---------------------------------------------------------------------------
+
+export interface StripeCustomerSummary {
+  customerId: string;
+  email: string | null;
+  name: string | null;
+  created: number; // unix seconds
+  defaultPaymentMethodId: string | null;
+  dashboardUrl: string;
+}
+
+export interface StripeSubscriptionSummary {
+  subscriptionId: string;
+  status: string;
+  currentPeriodStart: number;
+  currentPeriodEnd: number;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: number | null;
+  amountCents: number;
+  currency: string;
+  collectionMethod: string;
+  productId: string;
+  priceId: string;
+}
+
+export interface StripeConnectSummary {
+  accountId: string;
+  type: string;
+  country: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  capabilities: Record<string, string>;
+  requirementsCurrentlyDue: string[];
+  requirementsPastDue: string[];
+  disabledReason: string | null;
+  defaultPayoutInterval: string | null;
+}
+
+export interface StripeInvoiceSummary {
+  invoiceId: string;
+  number: string | null;
+  status: string;
+  amountPaid: number;
+  amountRemaining: number;
+  currency: string;
+  created: number;
+  hostedInvoiceUrl: string | null;
+}
+
+export interface StripePaymentIntentSummary {
+  paymentIntentId: string;
+  status: string;
+  amount: number;
+  currency: string;
+  created: number;
+  paymentMethodTypes: string[];
+  description: string | null;
+}
+
+export interface StripeDisputeSummary {
+  disputeId: string;
+  status: string;
+  reason: string;
+  amount: number;
+  currency: string;
+  created: number;
+  evidenceDueBy: number | null;
+  charge: string | null;
+}
+
+export interface StripePartnerSnapshot {
+  // Top-level identity
+  hasStripeFootprint: boolean;
+  // Per-section data + errors. Errors are surfaced as strings so the UI
+  // can render a partial snapshot when one section fails.
+  customer: StripeCustomerSummary | null;
+  customerError: string | null;
+  subscription: StripeSubscriptionSummary | null;
+  subscriptionError: string | null;
+  connect: StripeConnectSummary | null;
+  connectError: string | null;
+  invoices: StripeInvoiceSummary[];
+  invoicesError: string | null;
+  payments: StripePaymentIntentSummary[];
+  paymentsError: string | null;
+  disputes: StripeDisputeSummary[];
+  disputesError: string | null;
+}
+
+function dashboardBase(accountId?: string): string {
+  // Stripe dashboard URLs are mode-aware. We can't reliably detect test vs
+  // live from the SDK without an extra call; default to `/test/` since the
+  // admin-panel deployment points at the test secret. If the project goes
+  // live, swap this to '/'. (Or read STRIPE_SECRET_KEY's `sk_live_` prefix
+  // at runtime — TODO when live mode lands.)
+  const isLive = (process.env.STRIPE_SECRET_KEY || '').startsWith('sk_live_');
+  const acct = accountId ? `${accountId}/` : '';
+  return `https://dashboard.stripe.com/${acct}${isLive ? '' : 'test/'}`;
+}
+
+export async function getStripePartnerSnapshot(
+  targetUid: string
+): Promise<ActionResult<{ snapshot: StripePartnerSnapshot }>> {
+  await requireAdminSession();
+
+  const target = await loadManagedTarget(targetUid);
+  // Note: loadManagedTarget refuses on suspended/archived/non-managed.
+  // The snapshot is useful even for those states though — let's relax
+  // the gate here by reading the user doc directly.
+  let userData: FirebaseFirestore.DocumentData = {};
+  if (target.ok) {
+    userData = target.data;
+  } else {
+    const snap = await serverDb().collection('users').doc(targetUid).get();
+    if (!snap.exists) return { ok: false, error: 'User not found.' };
+    userData = snap.data() ?? {};
+  }
+
+  const customerId =
+    typeof userData.stripeCustomerId === 'string'
+      ? userData.stripeCustomerId
+      : null;
+  const connectAccountId =
+    typeof userData.stripeConnectAccountId === 'string'
+      ? userData.stripeConnectAccountId
+      : null;
+  const subscriptionId =
+    typeof userData.ownerSubscription?.stripeSubscriptionId === 'string'
+      ? userData.ownerSubscription.stripeSubscriptionId
+      : null;
+
+  const snapshot: StripePartnerSnapshot = {
+    hasStripeFootprint: Boolean(customerId || connectAccountId),
+    customer: null,
+    customerError: null,
+    subscription: null,
+    subscriptionError: null,
+    connect: null,
+    connectError: null,
+    invoices: [],
+    invoicesError: null,
+    payments: [],
+    paymentsError: null,
+    disputes: [],
+    disputesError: null,
+  };
+
+  if (!snapshot.hasStripeFootprint) {
+    return { ok: true, snapshot };
+  }
+
+  const stripe = serverStripe();
+
+  // Build all the section fetches and run them in parallel. Each catches
+  // its own error so one failure doesn't take down the whole snapshot.
+  const tasks: Promise<void>[] = [];
+
+  if (customerId) {
+    tasks.push(
+      stripe.customers
+        .retrieve(customerId, { expand: ['invoice_settings.default_payment_method'] })
+        .then((c) => {
+          if (c.deleted) {
+            snapshot.customerError = 'Customer is deleted in Stripe.';
+            return;
+          }
+          snapshot.customer = {
+            customerId: c.id,
+            email: c.email ?? null,
+            name: c.name ?? null,
+            created: c.created,
+            defaultPaymentMethodId:
+              typeof c.invoice_settings?.default_payment_method === 'string'
+                ? c.invoice_settings.default_payment_method
+                : (c.invoice_settings?.default_payment_method as
+                    | { id: string }
+                    | null)?.id ?? null,
+            dashboardUrl: `${dashboardBase()}customers/${c.id}`,
+          };
+        })
+        .catch((e) => {
+          snapshot.customerError = e instanceof Error ? e.message : String(e);
+        })
+    );
+
+    // Recent invoices for the customer (any subscription, includes the
+    // €150/yr owner-sub + any one-off invoices).
+    tasks.push(
+      stripe.invoices
+        .list({ customer: customerId, limit: 12 })
+        .then((page) => {
+          snapshot.invoices = page.data.map((inv) => ({
+            invoiceId: inv.id || '',
+            number: inv.number ?? null,
+            status: inv.status ?? 'unknown',
+            amountPaid: inv.amount_paid ?? 0,
+            amountRemaining: inv.amount_remaining ?? 0,
+            currency: inv.currency ?? 'eur',
+            created: inv.created ?? 0,
+            hostedInvoiceUrl: inv.hosted_invoice_url ?? null,
+          }));
+        })
+        .catch((e) => {
+          snapshot.invoicesError = e instanceof Error ? e.message : String(e);
+        })
+    );
+
+    // Recent PaymentIntents — covers rent payments + anything else.
+    tasks.push(
+      stripe.paymentIntents
+        .list({ customer: customerId, limit: 12 })
+        .then((page) => {
+          snapshot.payments = page.data.map((pi) => ({
+            paymentIntentId: pi.id,
+            status: pi.status,
+            amount: pi.amount,
+            currency: pi.currency,
+            created: pi.created,
+            paymentMethodTypes: pi.payment_method_types ?? [],
+            description: pi.description ?? null,
+          }));
+        })
+        .catch((e) => {
+          snapshot.paymentsError = e instanceof Error ? e.message : String(e);
+        })
+    );
+  }
+
+  if (subscriptionId) {
+    tasks.push(
+      stripe.subscriptions
+        .retrieve(subscriptionId, { expand: ['items.data.price.product'] })
+        .then((sub) => {
+          const item = sub.items.data[0];
+          const price = item?.price as { id: string; product: string | { id: string }; unit_amount: number | null; currency: string } | undefined;
+          const productId =
+            typeof price?.product === 'string'
+              ? price.product
+              : (price?.product as { id: string } | undefined)?.id ?? '';
+          // current_period_start / end live on subscription items in v2 API.
+          const cps = (sub as unknown as { current_period_start?: number }).current_period_start ??
+            (item as unknown as { current_period_start?: number })?.current_period_start ?? 0;
+          const cpe = (sub as unknown as { current_period_end?: number }).current_period_end ??
+            (item as unknown as { current_period_end?: number })?.current_period_end ?? 0;
+          snapshot.subscription = {
+            subscriptionId: sub.id,
+            status: sub.status,
+            currentPeriodStart: cps,
+            currentPeriodEnd: cpe,
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            canceledAt: sub.canceled_at,
+            amountCents: price?.unit_amount ?? 0,
+            currency: price?.currency ?? 'eur',
+            collectionMethod: sub.collection_method,
+            productId,
+            priceId: price?.id ?? '',
+          };
+        })
+        .catch((e) => {
+          snapshot.subscriptionError = e instanceof Error ? e.message : String(e);
+        })
+    );
+  }
+
+  if (connectAccountId) {
+    tasks.push(
+      stripe.accounts
+        .retrieve(connectAccountId)
+        .then((acct) => {
+          // Stripe-Node's `requirements` type is conservatively `{}` when
+          // unset, so we widen at the boundary. All fields are optional
+          // per the Stripe API.
+          const reqs = (acct.requirements ?? {}) as {
+            currently_due?: string[];
+            past_due?: string[];
+            disabled_reason?: string | null;
+          };
+          // capabilities is an object whose values are status strings
+          // ('active' / 'pending' / 'inactive'). Normalize to a flat map.
+          const caps: Record<string, string> = {};
+          for (const [k, v] of Object.entries(acct.capabilities ?? {})) {
+            if (typeof v === 'string') caps[k] = v;
+          }
+          snapshot.connect = {
+            accountId: acct.id,
+            type: acct.type ?? 'unknown',
+            country: acct.country ?? null,
+            chargesEnabled: acct.charges_enabled === true,
+            payoutsEnabled: acct.payouts_enabled === true,
+            detailsSubmitted: acct.details_submitted === true,
+            capabilities: caps,
+            requirementsCurrentlyDue: Array.isArray(reqs.currently_due)
+              ? reqs.currently_due
+              : [],
+            requirementsPastDue: Array.isArray(reqs.past_due) ? reqs.past_due : [],
+            disabledReason:
+              typeof reqs.disabled_reason === 'string'
+                ? reqs.disabled_reason
+                : null,
+            defaultPayoutInterval:
+              acct.settings?.payouts?.schedule?.interval ?? null,
+          };
+        })
+        .catch((e) => {
+          snapshot.connectError = e instanceof Error ? e.message : String(e);
+        })
+    );
+
+    // Disputes are scoped to the Connect account (chargebacks land on the
+    // connected account when on_behalf_of is set on the PaymentIntent).
+    tasks.push(
+      stripe.disputes
+        .list({ limit: 5 }, { stripeAccount: connectAccountId })
+        .then((page) => {
+          snapshot.disputes = page.data.map((d) => ({
+            disputeId: d.id,
+            status: d.status,
+            reason: d.reason,
+            amount: d.amount,
+            currency: d.currency,
+            created: d.created,
+            evidenceDueBy: d.evidence_details?.due_by ?? null,
+            charge: typeof d.charge === 'string' ? d.charge : d.charge?.id ?? null,
+          }));
+        })
+        .catch((e) => {
+          snapshot.disputesError = e instanceof Error ? e.message : String(e);
+        })
+    );
+  }
+
+  await Promise.all(tasks);
+
+  return { ok: true, snapshot };
 }

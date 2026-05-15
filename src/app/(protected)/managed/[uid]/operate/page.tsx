@@ -20,12 +20,15 @@ import type {
   OperateApplicationSummary,
   OperateChatsSummary,
   OperateListingSummary,
+  StripePartnerSnapshot,
 } from './actions';
+import { getStripePartnerSnapshot } from './actions';
 import { ChatsTab } from './_components/chats-tab';
 import { ListingsTab } from './_components/listings-tab';
 import { ApplicationsTab } from './_components/applications-tab';
+import { StripeTab } from './_components/stripe-tab';
 
-const OPERATE_TABS = ['chats', 'listings', 'applications'] as const;
+const OPERATE_TABS = ['chats', 'listings', 'applications', 'stripe'] as const;
 type OperateTab = (typeof OPERATE_TABS)[number];
 
 function asTab(raw: string | string[] | undefined): OperateTab {
@@ -228,7 +231,22 @@ export default async function OperatePage({
         : null;
 
   // Lazily fetch only the tab's data set to keep page loads cheap.
-  const [chats, listings, applications] = await Promise.all([
+  const emptyStripe: StripePartnerSnapshot = {
+    hasStripeFootprint: false,
+    customer: null,
+    customerError: null,
+    subscription: null,
+    subscriptionError: null,
+    connect: null,
+    connectError: null,
+    invoices: [],
+    invoicesError: null,
+    payments: [],
+    paymentsError: null,
+    disputes: [],
+    disputesError: null,
+  };
+  const [chats, listings, applications, stripe] = await Promise.all([
     tab === 'chats' ? loadChats(uid) : Promise.resolve([] as OperateChatsSummary[]),
     tab === 'listings'
       ? loadListings(uid)
@@ -236,6 +254,11 @@ export default async function OperatePage({
     tab === 'applications'
       ? loadApplications(uid)
       : Promise.resolve([] as OperateApplicationSummary[]),
+    tab === 'stripe'
+      ? getStripePartnerSnapshot(uid).then((res) =>
+          res.ok ? res.snapshot : emptyStripe
+        )
+      : Promise.resolve(emptyStripe),
   ]);
 
   return (
@@ -273,6 +296,7 @@ export default async function OperatePage({
           disabled={Boolean(lockedReason)}
         />
       )}
+      {tab === 'stripe' && <StripeTab snapshot={stripe} />}
     </div>
   );
 }
@@ -282,6 +306,7 @@ function TabsRow({ uid, active }: { uid: string; active: OperateTab }) {
     { value: 'chats', label: 'Chats' },
     { value: 'listings', label: 'Listings' },
     { value: 'applications', label: 'Applications' },
+    { value: 'stripe', label: 'Stripe' },
   ];
   return (
     <div
