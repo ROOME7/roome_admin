@@ -550,6 +550,15 @@ export interface OperateApplicationSummary {
 // the syncListingOnPropertyWrite Cloud Function — listings are derived
 // from property+rooms, not authored independently.
 //
+// SCHEMA WARNING (2026-05-18 client feedback #4): the Flutter app's
+// HouseData.fromFirestore reads `address` as a top-level STRING (the street
+// name), `civic` as the street number, and `city` at top level. Rooms read
+// `price` (euros), `condoFees` (euros), `infoRoom`, `numOfPeople`,
+// `occupants`. Writing the admin-friendly nested shape (`address: {...}`,
+// `pricePerPersonCents`) crashed Flutter listing reads — Map cast to String
+// blew up the user-facing listings tab. This action mirrors Flutter's
+// add_house_screen.dart write shape so user-side reads stay safe.
+//
 // Audit stamps land on:
 //   - properties/{propertyId} itself
 //   - each properties/{propertyId}/rooms/{roomId} subdoc
@@ -558,6 +567,18 @@ export interface OperateApplicationSummary {
 // of truth, and any later listing edit goes through updateListingAs which
 // stamps the listing doc directly.
 // ---------------------------------------------------------------------------
+
+// Replicates Flutter's _generateSearchTerms (add_house_screen.dart): lower-case
+// "city address" and emit every prefix substring. Used by the tenant-side
+// listings search bar (prefix-match query against `properties.searchTerms`).
+function generateSearchTerms(city: string, address: string): string[] {
+  const fullText = `${city} ${address}`.toLowerCase();
+  const out = new Set<string>();
+  for (let i = 1; i <= fullText.length; i += 1) {
+    out.add(fullText.substring(0, i).trim());
+  }
+  return Array.from(out);
+}
 
 export interface RoomInput {
   type: 'single' | 'double' | 'master';
@@ -683,43 +704,83 @@ export async function publishListingAs(
   const propertyId = propRef.id;
   const now = FieldValue.serverTimestamp();
 
+  const street = input.street.trim();
+  const streetNumber = input.streetNumber.trim();
+  const city = input.city.trim();
+  const region = input.region.trim();
+  const province = input.province.trim();
+  const neighborhood = input.neighborhood?.trim() || null;
+
+  // Aggregate room-derived denorm fields the way Flutter does
+  // (add_house_screen.dart lines 594-604). Prices in EUROS for the property
+  // doc — the room-level price is in euros too. `_rebuildListingForProperty`
+  // converts to cents when populating listings/{id}.search.lowestPriceCents.
+  let lowestPrice = Number.POSITIVE_INFINITY;
+  let hasSingle = false;
+  let hasDouble = false;
+  for (const r of input.rooms) {
+    const euros = r.pricePerPersonCents / 100;
+    if (euros < lowestPrice) lowestPrice = euros;
+    if (r.bedCount === 1) hasSingle = true;
+    if (r.bedCount >= 2) hasDouble = true;
+  }
+  if (!Number.isFinite(lowestPrice)) lowestPrice = 0;
+
   const batch = db.batch();
   batch.set(propRef, {
     propertyId,
     ownerId: targetUid,
-    address: {
-      street: input.street.trim(),
-      streetNumber: input.streetNumber.trim(),
-      postalCode: input.postalCode.trim(),
-      city: input.city.trim(),
-      province: input.province.trim(),
-      region: input.region.trim(),
-      neighborhood: input.neighborhood?.trim() || null,
-      country: 'IT',
-    },
-    location: null,
-    propertyType: input.propertyType,
-    floor: typeof input.floor === 'number' ? input.floor : null,
-    hasElevator: null,
-    yearBuilt: null,
-    totalSquareMeters: null,
-    totalRooms,
-    totalBeds,
-    totalBathrooms: input.totalBathrooms,
-    description: input.description.trim().slice(0, 5_000),
-    photoUrls: [],
-    // Listing-level convenience denorm — read by _rebuildListingForProperty.
-    // Kept on the property so the Cloud Function trigger needs no extra
-    // reads.
+
+    // ---- Flutter HouseData.fromFirestore shape (REQUIRED) ----
+    // Top-level scalars: Flutter casts data['address'] to String, so this
+    // MUST be a string and NOT a nested map.
+    address: street,
+    civic: streetNumber,
+    city,
+    infoHouse: input.description.trim().slice(0, 5_000),
+    // Admin form doesn't geocode addresses — flag as approximate so the
+    // tenant-side map shows the "approximate location" pin instead of an
+    // exact point. Lat/lng default to 0 (Flutter tolerates null but reads
+    // .toDouble() which would NPE on the absent key path).
+    latitude: 0,
+    longitude: 0,
+    isApproximate: true,
     isOnMarket: true,
+    photoUrls: [],
+    hasPhotos: false,
+    hasSingle,
+    hasDouble,
+    lowestPrice,
+    searchTerms: generateSearchTerms(city, street),
+    // Flutter requires `houseProfile` for the compatibility-scoring path.
+    // Admin UI doesn't collect ideal-tenant criteria yet — default to
+    // "indifferente" so the listing matches every tenant.
+    houseProfile: {
+      ageMin: 18,
+      ageMax: 30,
+      gender: 'indifferente',
+      status: 'indifferente',
+      professionalArea: 'Indifferente',
+    },
     inAppRentPaymentEnabled: input.inAppRentPaymentEnabled,
     rentDueDayOfMonth: input.inAppRentPaymentEnabled
       ? input.rentDueDayOfMonth
       : null,
-    region: input.region.trim(),
-    province: input.province.trim(),
-    neighborhood: input.neighborhood?.trim() || null,
-    city: input.city.trim(),
+
+    // ---- Listing-rebuild denorm (`_rebuildListingForProperty` reads these
+    // straight off the property doc to populate listings/{id}.search). ----
+    region,
+    province,
+    neighborhood,
+
+    // ---- Admin-only metadata (Flutter ignores; useful in admin UI) ----
+    postalCode: input.postalCode.trim(),
+    propertyType: input.propertyType,
+    floor: typeof input.floor === 'number' ? input.floor : null,
+    totalRooms,
+    totalBeds,
+    totalBathrooms: input.totalBathrooms,
+
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -729,16 +790,33 @@ export async function publishListingAs(
 
   for (const r of input.rooms) {
     const roomRef = propRef.collection('rooms').doc();
+    const occupied = r.status === 'occupied';
+    // Flutter's RoomData.toFirestore writes `occupants` as a List<String>
+    // sized to numOfPeople — empty string per free bed, occupant name per
+    // taken bed. Admin doesn't capture per-bed occupant names, so when the
+    // admin marks the whole room as occupied we fill placeholders so
+    // `isFree`/availableSpots come out right on the Flutter side.
+    const occupants = Array.from({ length: r.bedCount }, () =>
+      occupied ? 'Occupato' : ''
+    );
     batch.set(roomRef, {
-      roomId: roomRef.id,
-      type: r.type,
-      pricePerPersonCents: r.pricePerPersonCents,
-      condoFeesCents: r.condoFeesCents ?? 0,
-      status: r.status === 'occupied' ? 'occupied' : 'available',
-      bedCount: r.bedCount,
-      occupants: [],
-      description: r.description?.trim().slice(0, 2_000) || null,
+      // Flutter RoomData.fromFirestore shape (euros, numOfPeople,
+      // infoRoom, occupants).
+      isFree: !occupied,
+      price: r.pricePerPersonCents / 100,
+      condoFees: (r.condoFeesCents ?? 0) / 100,
+      infoRoom: r.description?.trim().slice(0, 2_000) || '',
+      numOfPeople: r.bedCount,
+      occupants,
       photoUrls: [],
+
+      // Listing-rebuild denorm (RoomData.toFirestore writes these too).
+      type: r.type,
+      bedCount: r.bedCount,
+      status: occupied ? 'occupied' : 'available',
+
+      // Admin-only audit
+      roomId: roomRef.id,
       createdAt: now,
       updatedAt: now,
       _impersonatedByAdminUid: adminSession.uid,
