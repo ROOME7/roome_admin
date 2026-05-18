@@ -69,12 +69,12 @@ function AdminsIcon() {
   );
 }
 
-// Brand mark — RooMe wordmark with a roome-blue square. Drop in real
+// Brand mark — Roome wordmark with a roome-blue square. Drop in real
 // artwork later by swapping this element; the colors come from the
 // design tokens so they stay aligned with the marketing site / app.
 function Logo() {
   return (
-    <div className="flex items-center gap-2.5" aria-label="RooMe Admin">
+    <div className="flex items-center gap-2.5" aria-label="Roome Admin">
       <span
         className="flex h-8 w-8 items-center justify-center rounded-lg bg-roome-blue text-sm font-bold text-primary-foreground shadow-sm"
         aria-hidden="true"
@@ -82,7 +82,7 @@ function Logo() {
         R
       </span>
       <span className="text-base font-semibold tracking-tight text-foreground">
-        RooMe
+        Roome
       </span>
     </div>
   );

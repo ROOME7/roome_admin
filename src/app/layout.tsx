@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
 import "./globals.css";
 
-// RooMe design system: Inter for body, Poppins for headings.
+// Roome design system: Inter for body, Poppins for headings.
 // next/font preconnects + self-hosts, so no FOUT and no Google round-trip.
 
 const inter = Inter({
@@ -19,8 +19,8 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "RooMe Admin",
-  description: "Internal admin panel for the RooMe marketplace.",
+  title: "Roome Admin",
+  description: "Internal admin panel for the Roome marketplace.",
 };
 
 export default function RootLayout({

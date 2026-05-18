@@ -25,7 +25,7 @@ export default async function ConnectReturnPage() {
           <p>
             Thanks — Stripe has received your information. Verification can
             take a few minutes to a few business days; you&apos;ll see your
-            status update inside RooMe once it&apos;s ready.
+            status update inside Roome once it&apos;s ready.
           </p>
           <p>You can safely close this tab now.</p>
         </>

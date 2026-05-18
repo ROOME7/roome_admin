@@ -1,6 +1,6 @@
-# RooMe Admin Panel
+# Roome Admin Panel
 
-Next.js admin panel for the RooMe marketplace. Talks to the same Firebase project as the Flutter app (`roome-506d5`) — admins are Firebase Auth users with a `roles: ['admin']` custom claim.
+Next.js admin panel for the Roome marketplace. Talks to the same Firebase project as the Flutter app (`roome-506d5`) — admins are Firebase Auth users with a `roles: ['admin']` custom claim.
 
 > Architecture, design rationale, and operational runbooks live in [`docs/architecture/admin-panel.md`](https://github.com/TZTozz/roomeFlutter/blob/main/docs/architecture/admin-panel.md) in the main repo. This README is the local setup guide.
 

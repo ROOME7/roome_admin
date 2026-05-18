@@ -31,7 +31,7 @@ export default async function SubscriptionSuccessPage({
         <>
           <p>
             Thanks — your €150/year listing subscription is active. You can
-            return to RooMe and publish your listing.
+            return to Roome and publish your listing.
           </p>
           {sp.session_id && (
             <p className="font-mono text-[10px] text-muted-foreground">

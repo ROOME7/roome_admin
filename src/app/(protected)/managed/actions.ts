@@ -1175,7 +1175,7 @@ export async function triggerConnectOnboarding(
   await db.collection('notifications').add({
     toUid: targetUid,
     kind: 'connect_onboarding_link',
-    title: 'Finalizza la verifica del tuo account RooMe',
+    title: 'Finalizza la verifica del tuo account Roome',
     body: 'Apri il link per completare la verifica Stripe e abilitare l’incasso dei canoni.',
     data: { url: onboardingUrl, kind: 'connect_onboarding_link' },
     createdAt: FieldValue.serverTimestamp(),
@@ -1187,7 +1187,7 @@ export async function triggerConnectOnboarding(
       await serverMessaging().send({
         token,
         notification: {
-          title: 'Finalizza la verifica del tuo account RooMe',
+          title: 'Finalizza la verifica del tuo account Roome',
           body: 'Tocca per aprire il link Stripe.',
         },
         data: {

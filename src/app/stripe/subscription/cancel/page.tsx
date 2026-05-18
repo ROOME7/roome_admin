@@ -25,7 +25,7 @@ export default async function SubscriptionCancelPage() {
             and won&apos;t be published until the €150 subscription is paid.
           </p>
           <p>
-            Reopen RooMe and try again from your listing — no data was lost.
+            Reopen Roome and try again from your listing — no data was lost.
           </p>
         </>
       }

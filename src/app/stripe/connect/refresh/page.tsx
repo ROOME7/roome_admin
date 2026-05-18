@@ -6,7 +6,7 @@
 // that would let anyone hit this URL and spam Account Link creation.
 //
 // Admin-signed-in case: CTA to regenerate from /managed.
-// Partner case (no session): "contact RooMe support" — admin can issue a
+// Partner case (no session): "contact Roome support" — admin can issue a
 // fresh link in seconds from the Connect dialog.
 
 import { readAdminSessionOrNull } from '@/lib/auth';
@@ -27,8 +27,8 @@ export default async function ConnectRefreshPage() {
             security policy keeps these short-lived for safety.
           </p>
           <p>
-            Please contact RooMe support to receive a fresh link, or retry
-            from the RooMe app where you started.
+            Please contact Roome support to receive a fresh link, or retry
+            from the Roome app where you started.
           </p>
         </>
       }

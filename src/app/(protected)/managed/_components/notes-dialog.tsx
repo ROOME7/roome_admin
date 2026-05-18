@@ -63,7 +63,7 @@ function NotesDialog({ account, onClose }: { account: ManagedAccount; onClose: (
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
         <h2 className="text-lg font-semibold text-foreground">Internal notes</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Visible only to RooMe admins. Survives handover and archival.
+          Visible only to Roome admins. Survives handover and archival.
         </p>
 
         <div className="mt-5 space-y-3">

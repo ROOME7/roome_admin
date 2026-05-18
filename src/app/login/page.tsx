@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             R
           </span>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">RooMe Admin</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Roome Admin</h1>
             <p className="mt-1 text-sm text-muted-foreground">Sign in to manage the platform.</p>
           </div>
         </header>
