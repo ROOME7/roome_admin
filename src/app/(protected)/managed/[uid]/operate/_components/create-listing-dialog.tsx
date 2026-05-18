@@ -42,6 +42,7 @@ interface RoomDraft {
   type: 'single' | 'double' | 'master';
   priceEuros: string; // form input as €
   bedCount: string;
+  status: 'available' | 'occupied';
   description: string;
 }
 
@@ -51,6 +52,7 @@ function newRoom(): RoomDraft {
     type: 'single',
     priceEuros: '',
     bedCount: '1',
+    status: 'available',
     description: '',
   };
 }
@@ -111,6 +113,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
         type: r.type,
         pricePerPersonCents: Math.round(priceEur * 100),
         bedCount,
+        status: r.status,
         description: r.description.trim() || undefined,
       });
     }
@@ -146,7 +149,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
 
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
-      <div className="w-full max-w-3xl rounded-xl border border-border bg-surface p-6 shadow-xl">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-xl">
         <h2 className="text-lg font-semibold text-foreground">Create listing as partner</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           Creates a property + its rooms with{' '}
@@ -410,6 +413,21 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                     disabled={pending}
                     className="input"
                   />
+                </Field>
+                <Field label="Status" required>
+                  <select
+                    value={r.status}
+                    onChange={(e) =>
+                      updateRoom(idx, {
+                        status: e.target.value as RoomDraft['status'],
+                      })
+                    }
+                    disabled={pending}
+                    className="input"
+                  >
+                    <option value="available">Available</option>
+                    <option value="occupied">Occupied</option>
+                  </select>
                 </Field>
               </div>
 

@@ -4,7 +4,7 @@
 // lets the admin edit the whitelisted mutable fields on each.
 
 import { useState, useTransition } from 'react';
-import { updateListingAs, type ListingPatch } from '../actions';
+import { deleteListingAs, updateListingAs, type ListingPatch } from '../actions';
 import type { OperateListingSummary } from '../actions';
 import { Field, InputStyles, Overlay } from '../../../_components/dialog-primitives';
 import { CreateListingButton } from './create-listing-dialog';
@@ -101,6 +101,13 @@ function ListingRow({
           >
             Edit as partner
           </button>
+          {listing.status !== 'archived' && (
+            <DeleteListingButton
+              uid={uid}
+              listing={listing}
+              disabled={disabled}
+            />
+          )}
         </div>
       </header>
 
@@ -112,6 +119,125 @@ function ListingRow({
         />
       )}
     </article>
+  );
+}
+
+function DeleteListingButton({
+  uid,
+  listing,
+  disabled,
+}: {
+  uid: string;
+  listing: OperateListingSummary;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+        className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Delete
+      </button>
+      {open && (
+        <DeleteListingDialog
+          uid={uid}
+          listing={listing}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function DeleteListingDialog({
+  uid,
+  listing,
+  onClose,
+}: {
+  uid: string;
+  listing: OperateListingSummary;
+  onClose: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+
+  function submit() {
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteListingAs(uid, listing.listingId, reason);
+      if (res.ok) {
+        onClose();
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Overlay onClose={pending ? () => {} : onClose}>
+      <div className="w-full max-w-md rounded-xl border border-destructive/30 bg-surface p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-destructive">
+          Remove listing from marketplace?
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Sets the listing to{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">archived</code>{' '}
+          and flips the underlying property&apos;s{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">isOnMarket</code>{' '}
+          to false. The listing disappears from search but the property + rooms
+          stay on file — reversible by editing the property if needed.
+        </p>
+
+        <div className="mt-5">
+          <Field label="Reason" hint="Optional, audit log">
+            <textarea
+              rows={3}
+              maxLength={1000}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={pending}
+              className="input"
+              placeholder="Why are you removing this listing?"
+            />
+          </Field>
+        </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        )}
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={pending}
+            className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {pending ? 'Removing…' : 'Remove from marketplace'}
+          </button>
+        </div>
+
+        <InputStyles />
+      </div>
+    </Overlay>
   );
 }
 

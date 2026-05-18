@@ -19,7 +19,12 @@ export function Overlay({
     <div
       role="presentation"
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-foreground/40 p-4 backdrop-blur-sm"
+      // items-start (NOT items-center) so tall dialogs scroll naturally
+      // inside the overlay. items-center used to vertically center the
+      // card, which broke scrolling for forms taller than the viewport
+      // (Create Listing dialog — feedback 2026-05-18 #1). py-8 gives
+      // some breathing room top/bottom.
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/40 px-4 py-8 backdrop-blur-sm"
     >
       <div
         role="dialog"

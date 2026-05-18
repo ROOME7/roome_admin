@@ -292,6 +292,104 @@ export async function updateListingAs(
 }
 
 // ---------------------------------------------------------------------------
+// deleteListingAs — admin removes a listing from the marketplace
+//
+// Listings are derived from properties by the syncListingOnPropertyWrite
+// Cloud Function (the rebuild reads property.isOnMarket and writes
+// listings/{propertyId}.status='active'|'paused' accordingly). So the
+// cleanest "delete from marketplace" is:
+//   1. Set property.isOnMarket=false → trigger flips listing to 'paused'
+//   2. Override listing directly to status='archived' with an admin
+//      archive marker so it's clearly distinguished from a partner-paused
+//      listing.
+//   3. Audit-log.
+//
+// Reversible (clear archivedAt + flip isOnMarket back).
+// ---------------------------------------------------------------------------
+
+export async function deleteListingAs(
+  targetUid: string,
+  listingId: string,
+  reason?: string
+): Promise<ActionResult> {
+  const adminSession = await requireAdminSession();
+
+  const target = await loadManagedTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+  const { db } = target;
+
+  if (typeof listingId !== 'string' || !listingId) {
+    return { ok: false, error: 'Missing listing id.' };
+  }
+  const cleanedReason = (reason ?? '').trim().slice(0, 1_000);
+
+  const listingRef = db.collection('listings').doc(listingId);
+  const listingSnap = await listingRef.get();
+  if (!listingSnap.exists) return { ok: false, error: 'Listing not found.' };
+  const listing = listingSnap.data() ?? {};
+  if (listing.ownerId !== targetUid) {
+    return { ok: false, error: 'Listing is not owned by this partner.' };
+  }
+  if (listing.status === 'archived') {
+    return { ok: false, error: 'Listing is already archived.' };
+  }
+
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+
+  // Flip property's marketplace flag so the auto-rebuild trigger doesn't
+  // immediately recreate the listing as 'active'. (listingId === propertyId
+  // by convention from publishListingAs.)
+  const propertyId =
+    typeof listing.propertyId === 'string' ? listing.propertyId : listingId;
+  const propRef = db.collection('properties').doc(propertyId);
+  batch.set(
+    propRef,
+    {
+      isOnMarket: false,
+      updatedAt: now,
+      _impersonatedByAdminUid: adminSession.uid,
+      _impersonatedAt: now,
+    },
+    { merge: true }
+  );
+
+  // Override the listing doc directly to 'archived' with admin markers so
+  // the rebuild trigger (which would otherwise set status='paused' on the
+  // next property write) doesn't overwrite the archive state.
+  batch.set(
+    listingRef,
+    {
+      status: 'archived',
+      archivedAt: now,
+      archivedReason: 'admin_archived',
+      archivedByAdminUid: adminSession.uid,
+      updatedAt: now,
+      _impersonatedByAdminUid: adminSession.uid,
+      _impersonatedAt: now,
+    },
+    { merge: true }
+  );
+
+  await batch.commit();
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'notify',
+    payload: {
+      via: 'delete_listing_as',
+      listingId,
+      propertyId,
+      reason: cleanedReason || null,
+    },
+  });
+
+  revalidatePath(`/managed/${targetUid}/operate`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Item 9: respondToApplicationAs
 //
 // Admin accepts or declines a pending tenant application on behalf of the
@@ -466,6 +564,13 @@ export interface RoomInput {
   pricePerPersonCents: number;
   condoFeesCents?: number;
   bedCount: number;
+  /**
+   * Initial occupancy status for the room when the listing is published.
+   * Defaults to 'available' if the caller omits it (Flutter app sets this
+   * via the room form on the partner-facing screen; admin Create-Listing
+   * dialog forces the admin to pick — 2026-05-18 client feedback #3).
+   */
+  status?: 'available' | 'occupied';
   description?: string;
 }
 
@@ -629,7 +734,7 @@ export async function publishListingAs(
       type: r.type,
       pricePerPersonCents: r.pricePerPersonCents,
       condoFeesCents: r.condoFeesCents ?? 0,
-      status: 'available',
+      status: r.status === 'occupied' ? 'occupied' : 'available',
       bedCount: r.bedCount,
       occupants: [],
       description: r.description?.trim().slice(0, 2_000) || null,
