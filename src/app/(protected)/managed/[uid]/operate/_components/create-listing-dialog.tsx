@@ -59,10 +59,18 @@ export interface ParsedAddress {
   province: string;
   region: string;
   neighborhood: string;
+  // Geocoded coordinates from the Nominatim result. Persisting these on the
+  // property is what makes the tenant-side map render at the right place —
+  // without them HouseData.latitude defaults to null and the map section
+  // hides entirely (preferable to centring on (0,0)).
+  latitude: number | null;
+  longitude: number | null;
 }
 
 function parseNominatim(r: NominatimResult): ParsedAddress {
   const a = r.address ?? {};
+  const lat = Number.parseFloat(r.lat);
+  const lon = Number.parseFloat(r.lon);
   return {
     street: a.road || a.pedestrian || a.path || '',
     streetNumber: a.house_number || '',
@@ -71,6 +79,8 @@ function parseNominatim(r: NominatimResult): ParsedAddress {
     province: a.county || a.state_district || '',
     region: a.state || '',
     neighborhood: a.suburb || a.neighbourhood || a.quarter || '',
+    latitude: Number.isFinite(lat) ? lat : null,
+    longitude: Number.isFinite(lon) ? lon : null,
   };
 }
 
@@ -238,6 +248,13 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
   const [street, setStreet] = useState('');
   const [streetNumber, setStreetNumber] = useState('');
   const [postalCode, setPostalCode] = useState('');
+  // Coordinates from the address autocomplete. Required so the tenant-side
+  // map renders at the right place; if the admin types the address manually
+  // (without picking from the dropdown) these stay null and the property is
+  // written without lat/lon so the map section hides instead of pinning to
+  // (0,0) in the Gulf of Guinea.
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
   // Facts
   const [propertyType, setPropertyType] = useState<'apartment' | 'house' | 'shared_house'>(
     'apartment'
@@ -295,6 +312,8 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
       province: province.trim(),
       region: region.trim(),
       neighborhood: neighborhood.trim() || undefined,
+      latitude: latitude ?? undefined,
+      longitude: longitude ?? undefined,
       propertyType,
       floor: floor === '' ? null : Number.parseInt(floor, 10),
       totalBathrooms: Number.parseInt(totalBathrooms, 10),
@@ -332,8 +351,17 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
             Address
           </legend>
           {/* Autocomplete — pre-fills the rest of the address fields. Admin
-              can still edit any individual field manually after picking. */}
-          <Field label="Search address" hint="Powered by OpenStreetMap">
+              can still edit any individual field manually after picking.
+              Picking from the dropdown also captures lat/lon, which is what
+              makes the tenant-side map render at the right place. */}
+          <Field
+            label="Search address"
+            hint={
+              latitude != null && longitude != null
+                ? `Map pin set (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
+                : 'Pick a result so the tenant map renders'
+            }
+          >
             <AddressAutocomplete
               disabled={pending}
               onPick={(p) => {
@@ -344,6 +372,8 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 setProvince(p.province);
                 setRegion(p.region);
                 if (p.neighborhood) setNeighborhood(p.neighborhood);
+                setLatitude(p.latitude);
+                setLongitude(p.longitude);
               }}
             />
           </Field>

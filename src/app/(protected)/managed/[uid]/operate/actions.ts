@@ -604,6 +604,12 @@ export interface PublishListingInput {
   province: string;
   region: string;
   neighborhood?: string;
+  // Geocoded coordinates from the Nominatim autocomplete. Optional — if the
+  // admin types the address manually we write `null` so the tenant-side
+  // map section hides instead of centring on (0,0). Bug round 2026-05-19
+  // #3 (client feedback).
+  latitude?: number;
+  longitude?: number;
   // Facts
   propertyType: 'apartment' | 'house' | 'shared_house';
   floor?: number | null;
@@ -738,13 +744,28 @@ export async function publishListingAs(
     civic: streetNumber,
     city,
     infoHouse: input.description.trim().slice(0, 5_000),
-    // Admin form doesn't geocode addresses — flag as approximate so the
-    // tenant-side map shows the "approximate location" pin instead of an
-    // exact point. Lat/lng default to 0 (Flutter tolerates null but reads
-    // .toDouble() which would NPE on the absent key path).
-    latitude: 0,
-    longitude: 0,
-    isApproximate: true,
+    // Coordinates come from the Nominatim autocomplete in the admin form.
+    // If the admin typed the address manually (no pick), we write `null`
+    // so HouseData.latitude reads null and the tenant-side map section
+    // hides — preferable to centring on (0,0) which is the Gulf of Guinea.
+    // Flutter's fromFirestore handles null with `data['latitude']?.toDouble()`.
+    latitude:
+      typeof input.latitude === 'number' && Number.isFinite(input.latitude)
+        ? input.latitude
+        : null,
+    longitude:
+      typeof input.longitude === 'number' && Number.isFinite(input.longitude)
+        ? input.longitude
+        : null,
+    // When we DO have coordinates they come from a real geocode → not
+    // approximate. When we don't, isApproximate is irrelevant since the
+    // map section won't render at all.
+    isApproximate: !(
+      typeof input.latitude === 'number' &&
+      Number.isFinite(input.latitude) &&
+      typeof input.longitude === 'number' &&
+      Number.isFinite(input.longitude)
+    ),
     isOnMarket: true,
     photoUrls: [],
     hasPhotos: false,
