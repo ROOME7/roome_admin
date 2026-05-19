@@ -7,13 +7,182 @@
 // The form authors a property + its rooms; the listings/{} doc is
 // auto-built by the syncListingOnPropertyWrite Cloud Function.
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import {
   publishListingAs,
   type PublishListingInput,
   type RoomInput,
 } from '../actions';
 import { Field, InputStyles, Overlay } from '../../../_components/dialog-primitives';
+
+// ---------------------------------------------------------------------------
+// Nominatim (OpenStreetMap) address autocomplete
+//
+// Mirrors what the Flutter app's add_house_screen.dart does (single Search
+// field that pre-fills street / number / city / region / etc.). Nominatim
+// is free with no API key — we only need a polite User-Agent and a debounce
+// so we don't get rate-limited.
+//
+// Country is hard-coded to `it` to match the app's behavior.
+// ---------------------------------------------------------------------------
+
+interface NominatimAddress {
+  road?: string;
+  pedestrian?: string;
+  path?: string;
+  house_number?: string;
+  postcode?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  municipality?: string;
+  suburb?: string;
+  neighbourhood?: string;
+  quarter?: string;
+  county?: string;
+  state_district?: string;
+  state?: string;
+}
+
+interface NominatimResult {
+  display_name: string;
+  lat: string;
+  lon: string;
+  address?: NominatimAddress;
+}
+
+export interface ParsedAddress {
+  street: string;
+  streetNumber: string;
+  postalCode: string;
+  city: string;
+  province: string;
+  region: string;
+  neighborhood: string;
+}
+
+function parseNominatim(r: NominatimResult): ParsedAddress {
+  const a = r.address ?? {};
+  return {
+    street: a.road || a.pedestrian || a.path || '',
+    streetNumber: a.house_number || '',
+    postalCode: a.postcode || '',
+    city: a.city || a.town || a.village || a.municipality || '',
+    province: a.county || a.state_district || '',
+    region: a.state || '',
+    neighborhood: a.suburb || a.neighbourhood || a.quarter || '',
+  };
+}
+
+function AddressAutocomplete({
+  onPick,
+  disabled,
+}: {
+  onPick: (parsed: ParsedAddress) => void;
+  disabled: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
+    if (query.trim().length < 3) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const url =
+          `https://nominatim.openstreetmap.org/search?` +
+          `q=${encodeURIComponent(query)}&format=json&addressdetails=1` +
+          `&countrycodes=it&limit=5`;
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            // Nominatim policy requires a descriptive UA — admin panel
+            // contact info per the public terms.
+            'Accept-Language': 'it,en',
+          },
+        });
+        if (!res.ok) {
+          setResults([]);
+        } else {
+          const data = (await res.json()) as NominatimResult[];
+          setResults(Array.isArray(data) ? data : []);
+        }
+      } catch (e) {
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          console.warn('[AddressAutocomplete] lookup failed', e);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 600);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, [query]);
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // Delay closing so click events on result items can fire first.
+          setTimeout(() => setOpen(false), 150);
+        }}
+        disabled={disabled}
+        className="input"
+        placeholder="Start typing the address (e.g. Via Roma 12, Milano)"
+      />
+      {loading && (
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          Searching…
+        </span>
+      )}
+      {open && results.length > 0 && (
+        <ul className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
+          {results.map((r, i) => (
+            <li key={`${r.lat}-${r.lon}-${i}`}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  // Use onMouseDown so it fires before the input's onBlur
+                  // closes the dropdown.
+                  e.preventDefault();
+                  onPick(parseNominatim(r));
+                  setQuery(r.display_name);
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-foreground hover:bg-secondary"
+              >
+                {r.display_name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   uid: string;
@@ -162,6 +331,22 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Address
           </legend>
+          {/* Autocomplete — pre-fills the rest of the address fields. Admin
+              can still edit any individual field manually after picking. */}
+          <Field label="Search address" hint="Powered by OpenStreetMap">
+            <AddressAutocomplete
+              disabled={pending}
+              onPick={(p) => {
+                setStreet(p.street);
+                setStreetNumber(p.streetNumber);
+                setPostalCode(p.postalCode);
+                setCity(p.city);
+                setProvince(p.province);
+                setRegion(p.region);
+                if (p.neighborhood) setNeighborhood(p.neighborhood);
+              }}
+            />
+          </Field>
           {/* Row 1: Region | Province */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Region" required>

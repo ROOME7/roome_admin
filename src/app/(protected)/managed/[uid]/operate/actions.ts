@@ -944,11 +944,20 @@ export async function uploadListingPhotoAs(
     const buffer = Buffer.from(await file.arrayBuffer());
     const bucket = serverStorage().bucket();
     const fileHandle = bucket.file(objectPath);
+    // Firebase buckets default to Uniform Bucket-Level Access, which forbids
+    // per-object ACLs — so `fileHandle.makePublic()` throws. The Flutter
+    // client never uses ACLs either; it relies on the download-token URL
+    // that Firebase Storage SDK returns from getDownloadURL(). We replicate
+    // that exact URL shape by writing the token into custom metadata —
+    // anyone with the token + the storage.rules read grant on
+    // `HousePhoto/{propertyId}/...` can fetch the object.
+    const downloadToken = crypto.randomUUID();
     await fileHandle.save(buffer, {
       contentType: file.type,
       metadata: {
         cacheControl: 'public, max-age=31536000, immutable',
         metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
           uploadedByAdminUid: adminSession.uid,
           uploadedForUid: targetUid,
           uploadedAt: new Date().toISOString(),
@@ -956,10 +965,9 @@ export async function uploadListingPhotoAs(
       },
       resumable: false,
     });
-    // Make object publicly readable so partner + tenants can render it
-    // without signed URLs. Matches the existing photoUrls[] convention.
-    await fileHandle.makePublic();
-    publicUrl = `https://storage.googleapis.com/${bucket.name}/${objectPath}`;
+    publicUrl =
+      `https://firebasestorage.googleapis.com/v0/b/${bucket.name}` +
+      `/o/${encodeURIComponent(objectPath)}?alt=media&token=${downloadToken}`;
   } catch (e) {
     console.error('[operate.uploadPhoto] Storage write failed:', e);
     const msg = e instanceof Error ? e.message : String(e);
