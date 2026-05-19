@@ -155,8 +155,18 @@ function UploadPhotosDialog({
             {files.map((f) => (
               <li
                 key={f.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface p-2.5 text-sm"
+                className="flex items-center gap-3 rounded-md border border-border bg-surface p-2.5 text-sm"
               >
+                {f.status === 'done' && f.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={f.photoUrl}
+                    alt={f.file.name}
+                    className="h-12 w-16 shrink-0 rounded border border-border object-cover"
+                  />
+                ) : (
+                  <div className="h-12 w-16 shrink-0 rounded border border-border bg-muted" />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-foreground">{f.file.name}</p>
                   <p className="text-xs text-muted-foreground">

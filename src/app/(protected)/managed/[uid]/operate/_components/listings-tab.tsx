@@ -111,6 +111,8 @@ function ListingRow({
         </div>
       </header>
 
+      <PhotoStrip photoUrls={listing.photoUrls} />
+
       {open && (
         <EditListingDialog
           uid={uid}
@@ -458,5 +460,33 @@ function EditListingDialog({
         <InputStyles />
       </div>
     </Overlay>
+  );
+}
+
+// Renders the listing's photo strip below the row header. Empty state is a
+// muted "no photos yet" hint so the admin can tell uploads succeeded — the
+// Photos dialog only showed a "Done" badge, which made successful uploads
+// feel invisible (2026-05-19 client feedback #1).
+function PhotoStrip({ photoUrls }: { photoUrls: string[] }) {
+  if (photoUrls.length === 0) {
+    return (
+      <p className="mt-3 text-xs italic text-muted-foreground">
+        No photos uploaded yet.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+      {photoUrls.map((url, idx) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={url}
+          src={url}
+          alt={`Listing photo ${idx + 1}`}
+          className="h-20 w-28 shrink-0 rounded-md border border-border object-cover"
+          loading="lazy"
+        />
+      ))}
+    </div>
   );
 }

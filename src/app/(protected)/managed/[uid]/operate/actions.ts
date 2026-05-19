@@ -520,6 +520,11 @@ export interface OperateListingSummary {
   region: string | null;
   province: string | null;
   description: string;
+  // Photos live on `properties/{id}.photoUrls[]`, not on the derived
+  // listing doc (the `_rebuildListingForProperty` Cloud Function doesn't
+  // denorm them). The page loader batch-reads the property docs to fill
+  // this in so the admin UI can render thumbnails.
+  photoUrls: string[];
   inAppRentPaymentEnabled: boolean;
   rentDueDayOfMonth: number | null;
   idealTenant: {

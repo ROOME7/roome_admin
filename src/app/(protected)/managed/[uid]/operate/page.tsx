@@ -127,13 +127,40 @@ async function loadListings(uid: string): Promise<OperateListingSummary[]> {
     .limit(100)
     .get();
 
+  // Listings don't carry photoUrls — the `_rebuildListingForProperty` trigger
+  // skips them, so the URLs live on the parent property docs. One batched
+  // getAll() pulls every referenced property in a single network round-trip
+  // so we can fill in the thumbnail strip in the admin UI.
+  const propertyIds = snap.docs
+    .map((doc) => {
+      const d = doc.data();
+      return typeof d.propertyId === 'string' ? d.propertyId : '';
+    })
+    .filter((id) => id !== '');
+  const photoUrlsByPropertyId = new Map<string, string[]>();
+  if (propertyIds.length > 0) {
+    const propRefs = propertyIds.map((id) => db.collection('properties').doc(id));
+    const propSnaps = await db.getAll(...propRefs);
+    for (const propSnap of propSnaps) {
+      if (!propSnap.exists) continue;
+      const data = propSnap.data() ?? {};
+      const urls = Array.isArray(data.photoUrls)
+        ? (data.photoUrls.filter(
+            (u): u is string => typeof u === 'string' && u.length > 0
+          ) as string[])
+        : [];
+      photoUrlsByPropertyId.set(propSnap.id, urls);
+    }
+  }
+
   return snap.docs.map((doc) => {
     const d = doc.data();
     const search = (d.search ?? {}) as Record<string, unknown>;
     const ideal = (d.idealTenant ?? {}) as Record<string, unknown>;
+    const propertyId = typeof d.propertyId === 'string' ? d.propertyId : '';
     return {
       listingId: doc.id,
-      propertyId: typeof d.propertyId === 'string' ? d.propertyId : '',
+      propertyId,
       status: typeof d.status === 'string' ? d.status : 'unknown',
       region: typeof search.region === 'string' ? (search.region as string) : null,
       province:
@@ -141,6 +168,7 @@ async function loadListings(uid: string): Promise<OperateListingSummary[]> {
           ? (search.province as string)
           : null,
       description: typeof d.description === 'string' ? d.description : '',
+      photoUrls: photoUrlsByPropertyId.get(propertyId) ?? [],
       inAppRentPaymentEnabled: Boolean(d.inAppRentPaymentEnabled),
       rentDueDayOfMonth:
         typeof d.rentDueDayOfMonth === 'number' ? d.rentDueDayOfMonth : null,
