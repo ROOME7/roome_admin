@@ -216,6 +216,22 @@ export function CreateListingButton({ uid, disabled }: Props) {
   );
 }
 
+// Field-of-study options — verbatim copy of `_areaOptions` in the Flutter
+// add_house_screen.dart. Kept in the same order so the two forms read
+// identically. The compatibility calculator matches on these exact
+// strings, so they must NOT be translated or reworded.
+const IDEAL_TENANT_AREAS = [
+  'Indifferente',
+  'Ingegneria e Informatica',
+  'Matematica e Scienze',
+  'Medicina e Salute',
+  'Economia e Diritto',
+  'Lettere e Filosofia',
+  'Architettura e Design',
+  'Scienze Sociali e Psicologia',
+  'Arte e Musica',
+] as const;
+
 interface RoomDraft {
   id: string;
   type: 'single' | 'double' | 'master';
@@ -264,6 +280,19 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
   const [description, setDescription] = useState('');
   const [inAppRentPaymentEnabled, setInAppRentPaymentEnabled] = useState(false);
   const [rentDueDayOfMonth, setRentDueDayOfMonth] = useState('');
+  // Ideal-tenant profile (Flutter `houseProfile`). Mirrors the dropdowns in
+  // add_house_screen.dart so admin-created listings get the same
+  // compatibility-scoring inputs as app-created ones. Defaults match the
+  // Flutter IdealTenantProfile() constructor defaults.
+  const [idealAgeMin, setIdealAgeMin] = useState('18');
+  const [idealAgeMax, setIdealAgeMax] = useState('30');
+  const [idealGender, setIdealGender] = useState<'indifferente' | 'maschio' | 'femmina'>(
+    'indifferente'
+  );
+  const [idealStatus, setIdealStatus] = useState<'indifferente' | 'studente' | 'lavoratore'>(
+    'indifferente'
+  );
+  const [idealArea, setIdealArea] = useState('Indifferente');
   // Rooms
   const [rooms, setRooms] = useState<RoomDraft[]>([newRoom()]);
 
@@ -304,6 +333,22 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
       });
     }
 
+    // Ideal-tenant validation: age range must be sane (the Flutter
+    // IdealTenantProfile.fromMap swaps them if reversed, but reject here
+    // so the admin notices the typo).
+    const ageMin = Number.parseInt(idealAgeMin, 10);
+    const ageMax = Number.parseInt(idealAgeMax, 10);
+    if (
+      !Number.isFinite(ageMin) ||
+      !Number.isFinite(ageMax) ||
+      ageMin < 18 ||
+      ageMax > 99 ||
+      ageMin > ageMax
+    ) {
+      setError('Ideal tenant: age range must be 18–99 with min ≤ max.');
+      return;
+    }
+
     const input: PublishListingInput = {
       street: street.trim(),
       streetNumber: streetNumber.trim(),
@@ -322,6 +367,16 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
       rentDueDayOfMonth: inAppRentPaymentEnabled
         ? Number.parseInt(rentDueDayOfMonth, 10)
         : null,
+      idealTenant: {
+        ageMin,
+        ageMax,
+        gender: idealGender,
+        status: idealStatus,
+        // professionalArea only meaningful when the owner wants a
+        // student — mirrors the Flutter form, which hides the area
+        // dropdown unless status === studente.
+        professionalArea: idealStatus === 'studente' ? idealArea : 'Indifferente',
+      },
       rooms: parsedRooms,
     };
 
@@ -544,6 +599,90 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 disabled={pending}
                 className="input"
               />
+            </Field>
+          )}
+        </fieldset>
+
+        <fieldset className="mt-5 space-y-4 rounded-md border border-border p-4">
+          <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Ideal tenant
+          </legend>
+          <p className="text-xs text-muted-foreground">
+            Feeds the tenant-side compatibility score. Leave everything on
+            &quot;Any&quot; if the partner has no preference.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Age min" required>
+              <input
+                type="number"
+                min={18}
+                max={99}
+                required
+                value={idealAgeMin}
+                onChange={(e) => setIdealAgeMin(e.target.value)}
+                disabled={pending}
+                className="input"
+              />
+            </Field>
+            <Field label="Age max" required>
+              <input
+                type="number"
+                min={18}
+                max={99}
+                required
+                value={idealAgeMax}
+                onChange={(e) => setIdealAgeMax(e.target.value)}
+                disabled={pending}
+                className="input"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Gender preference" required>
+              <select
+                value={idealGender}
+                onChange={(e) =>
+                  setIdealGender(e.target.value as typeof idealGender)
+                }
+                disabled={pending}
+                className="input"
+              >
+                <option value="indifferente">Any</option>
+                <option value="maschio">Male</option>
+                <option value="femmina">Female</option>
+              </select>
+            </Field>
+            <Field label="Occupation preference" required>
+              <select
+                value={idealStatus}
+                onChange={(e) =>
+                  setIdealStatus(e.target.value as typeof idealStatus)
+                }
+                disabled={pending}
+                className="input"
+              >
+                <option value="indifferente">Any</option>
+                <option value="studente">Student</option>
+                <option value="lavoratore">Worker</option>
+              </select>
+            </Field>
+          </div>
+          {/* Field of study — only relevant for a student preference, same
+              as the Flutter add-house form, which hides it otherwise. */}
+          {idealStatus === 'studente' && (
+            <Field label="Field of study" hint="Used for student compatibility">
+              <select
+                value={idealArea}
+                onChange={(e) => setIdealArea(e.target.value)}
+                disabled={pending}
+                className="input"
+              >
+                {IDEAL_TENANT_AREAS.map((area) => (
+                  <option key={area} value={area}>
+                    {area}
+                  </option>
+                ))}
+              </select>
             </Field>
           )}
         </fieldset>

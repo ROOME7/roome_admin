@@ -623,12 +623,28 @@ export interface PublishListingInput {
   // Listing-level
   inAppRentPaymentEnabled: boolean;
   rentDueDayOfMonth?: number | null;
+  // Ideal-tenant profile (Flutter `houseProfile`). Optional for backward
+  // compatibility — when omitted, publishListingAs falls back to the
+  // all-"indifferente" defaults. The Create-Listing dialog always sends
+  // it now (2026-05-19 client feedback — admin form must collect ideal-
+  // tenant preferences like the Flutter add-house form does).
+  idealTenant?: {
+    ageMin: number;
+    ageMax: number;
+    gender: 'indifferente' | 'maschio' | 'femmina';
+    status: 'indifferente' | 'studente' | 'lavoratore';
+    professionalArea: string;
+  };
   // Rooms (must be 1+)
   rooms: RoomInput[];
 }
 
 const ALLOWED_ROOM_TYPES = new Set(['single', 'double', 'master']);
 const ALLOWED_PROPERTY_TYPES = new Set(['apartment', 'house', 'shared_house']);
+// Ideal-tenant enum values — must match the Dart enum `.name` strings the
+// Flutter app reads back via IdealTenantProfile.fromMap.
+const ALLOWED_IDEAL_GENDER = new Set(['indifferente', 'maschio', 'femmina']);
+const ALLOWED_IDEAL_STATUS = new Set(['indifferente', 'studente', 'lavoratore']);
 
 function validatePublishInput(input: PublishListingInput):
   | { ok: true }
@@ -671,6 +687,27 @@ function validatePublishInput(input: PublishListingInput):
         ok: false,
         error: 'rentDueDayOfMonth (1–28) is required when In-App Rent Payment is enabled.',
       };
+    }
+  }
+  if (input.idealTenant !== undefined) {
+    const it = input.idealTenant;
+    if (
+      typeof it.ageMin !== 'number' ||
+      typeof it.ageMax !== 'number' ||
+      it.ageMin < 18 ||
+      it.ageMax > 99 ||
+      it.ageMin > it.ageMax
+    ) {
+      return {
+        ok: false,
+        error: 'idealTenant age range must be 18–99 with ageMin ≤ ageMax.',
+      };
+    }
+    if (!ALLOWED_IDEAL_GENDER.has(it.gender)) {
+      return { ok: false, error: 'idealTenant.gender is invalid.' };
+    }
+    if (!ALLOWED_IDEAL_STATUS.has(it.status)) {
+      return { ok: false, error: 'idealTenant.status is invalid.' };
     }
   }
   if (!Array.isArray(input.rooms) || input.rooms.length === 0) {
@@ -779,14 +816,23 @@ export async function publishListingAs(
     lowestPrice,
     searchTerms: generateSearchTerms(city, street),
     // Flutter requires `houseProfile` for the compatibility-scoring path.
-    // Admin UI doesn't collect ideal-tenant criteria yet — default to
-    // "indifferente" so the listing matches every tenant.
+    // The Create-Listing dialog now collects ideal-tenant criteria
+    // (2026-05-19 client feedback); when input.idealTenant is absent we
+    // fall back to all-"indifferente" so the listing matches everyone.
+    // Shape mirrors Flutter's IdealTenantProfile.toMap() exactly —
+    // gender/status are the Dart enum `.name` values.
     houseProfile: {
-      ageMin: 18,
-      ageMax: 30,
-      gender: 'indifferente',
-      status: 'indifferente',
-      professionalArea: 'Indifferente',
+      ageMin:
+        typeof input.idealTenant?.ageMin === 'number'
+          ? input.idealTenant.ageMin
+          : 18,
+      ageMax:
+        typeof input.idealTenant?.ageMax === 'number'
+          ? input.idealTenant.ageMax
+          : 30,
+      gender: input.idealTenant?.gender ?? 'indifferente',
+      status: input.idealTenant?.status ?? 'indifferente',
+      professionalArea: input.idealTenant?.professionalArea?.trim() || 'Indifferente',
     },
     inAppRentPaymentEnabled: input.inAppRentPaymentEnabled,
     rentDueDayOfMonth: input.inAppRentPaymentEnabled
