@@ -602,8 +602,248 @@ export async function respondToApplicationAs(
 }
 
 // ---------------------------------------------------------------------------
+// removeTenantAs — end an active tenancy, freeing the bed (2026-05-19 client
+// feedback — "I want to manage my tenants like private owners do, see who's
+// in my houses and kick them out").
+//
+// Mirrors the Flutter landlord_tenants_screen `_removeTenant` flow:
+//   1. Clear the tenant's slot in the room's `occupants[]` and flip the
+//      room back to free / available.
+//   2. Hard-delete the contract doc (Flutter does the same — the tenancy
+//      is over, not paused).
+//   3. Post a system message into the linked chat so the tenant is told,
+//      and detach the chat's contractId.
+// Every write carries the `_impersonatedByAdminUid` stamp + an
+// adminAccountActions audit row.
+// ---------------------------------------------------------------------------
+
+const TENANT_REMOVED_MESSAGE =
+  '⚠️ Il proprietario ti ha rimosso dalla stanza. Il contratto è stato chiuso.';
+
+export async function removeTenantAs(
+  targetUid: string,
+  contractId: string
+): Promise<ActionResult> {
+  const adminSession = await requireAdminSession();
+
+  const target = await loadManagedTarget(targetUid);
+  if (!target.ok) return { ok: false, error: target.error };
+  const { db } = target;
+
+  if (typeof contractId !== 'string' || !contractId) {
+    return { ok: false, error: 'Missing contract id.' };
+  }
+
+  const contractRef = db.collection('contracts').doc(contractId);
+  const contractSnap = await contractRef.get();
+  if (!contractSnap.exists) return { ok: false, error: 'Contract not found.' };
+  const contract = contractSnap.data() ?? {};
+  if (contract.landlordId !== targetUid) {
+    return { ok: false, error: 'Partner is not the landlord on this contract.' };
+  }
+  if (contract.status !== 'active') {
+    return {
+      ok: false,
+      error: `Contract is in status "${contract.status}" — only active tenancies can be ended here.`,
+    };
+  }
+
+  const propertyId =
+    typeof contract.propertyId === 'string' ? contract.propertyId : '';
+  const roomId = typeof contract.roomId === 'string' ? contract.roomId : '';
+  const tenantUsername = (
+    typeof contract.tenantUsername === 'string' ? contract.tenantUsername : ''
+  )
+    .replace(/@/g, '')
+    .trim();
+  const now = FieldValue.serverTimestamp();
+
+  // Step 1 — free the bed. Best-effort: if the room doc or the matching
+  // occupant slot is gone we still close the contract (matches Flutter).
+  if (propertyId && roomId) {
+    const roomRef = db
+      .collection('properties')
+      .doc(propertyId)
+      .collection('rooms')
+      .doc(roomId);
+    const roomSnap = await roomRef.get();
+    if (roomSnap.exists) {
+      const room = roomSnap.data() ?? {};
+      const occupants = Array.isArray(room.occupants)
+        ? [...(room.occupants as unknown[])]
+        : [];
+      let changed = false;
+      for (let i = 0; i < occupants.length; i += 1) {
+        const o = occupants[i];
+        if (
+          typeof o === 'string' &&
+          o.replace(/@/g, '').trim() === tenantUsername &&
+          tenantUsername.length > 0
+        ) {
+          occupants[i] = '';
+          changed = true;
+          break;
+        }
+      }
+      if (changed) {
+        // Removing an occupant always leaves at least one empty slot, so
+        // the room is free + available afterwards.
+        await roomRef.update({
+          occupants,
+          isFree: true,
+          status: 'available',
+          updatedAt: now,
+          _impersonatedByAdminUid: adminSession.uid,
+          _impersonatedAt: now,
+        });
+      }
+    }
+  }
+
+  // Step 2 — close the tenancy.
+  await contractRef.delete();
+
+  // Step 3 — notify the tenant in-chat. The chat is found by its
+  // `contractId` field (set by the invite flow). Best-effort: a chat
+  // that never carried a contractId just gets no system message,
+  // exactly like Flutter's postSystemMessageByContract.
+  const chatQuery = await db
+    .collection('chats')
+    .where('contractId', '==', contractId)
+    .limit(1)
+    .get();
+  if (!chatQuery.empty) {
+    const chatRef = chatQuery.docs[0].ref;
+    const msgRef = chatRef.collection('messages').doc();
+    const batch = db.batch();
+    // Flutter chat message schema — content / type / timestamp.
+    batch.set(msgRef, {
+      content: TENANT_REMOVED_MESSAGE,
+      type: 'text',
+      imageUrls: null,
+      contractId: null,
+      senderId: targetUid,
+      timestamp: now,
+      _impersonatedByAdminUid: adminSession.uid,
+      _impersonatedAt: now,
+    });
+    batch.update(chatRef, {
+      lastUpdate: now,
+      lastMessage: TENANT_REMOVED_MESSAGE,
+      lastSenderId: targetUid,
+      isRead: false,
+      // Detach the dead contract so the chat no longer renders the
+      // contract-linked banner (matches clearContractLink: true).
+      contractId: FieldValue.delete(),
+      _impersonatedByAdminUid: adminSession.uid,
+      _impersonatedAt: now,
+    });
+    await batch.commit();
+  }
+
+  await recordAdminAction({
+    adminUid: adminSession.uid,
+    targetUid,
+    action: 'notify',
+    payload: {
+      via: 'remove_tenant_as',
+      contractId,
+      propertyId,
+      roomId,
+      tenantId: typeof contract.tenantId === 'string' ? contract.tenantId : null,
+    },
+  });
+
+  revalidatePath(`/managed/${targetUid}/operate`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Read helpers (server-side, called from page.tsx)
 // ---------------------------------------------------------------------------
+
+// One active tenancy, as surfaced on the Tenants tab.
+export interface OperateActiveTenant {
+  contractId: string;
+  tenantId: string;
+  tenantUsername: string;
+  propertyId: string;
+  propertyLabel: string;
+  roomId: string;
+  terminationRequested: boolean;
+  profile: OperateTenantProfile | null;
+}
+
+// Loads the partner's active tenancies (contracts where they're the
+// landlord and status='active'), resolving each tenant's profile and the
+// property address label. Grouping by house happens in the Tenants tab UI.
+export async function loadActiveTenants(
+  uid: string
+): Promise<OperateActiveTenant[]> {
+  const db = serverDb();
+  // Two equality filters — covered by the auto-created single-field
+  // indexes, no composite needed (we sort in memory below).
+  const snap = await db
+    .collection('contracts')
+    .where('landlordId', '==', uid)
+    .where('status', '==', 'active')
+    .limit(200)
+    .get();
+  if (snap.empty) return [];
+
+  const rows = snap.docs.map((doc) => {
+    const d = doc.data();
+    return {
+      contractId: doc.id,
+      tenantId: typeof d.tenantId === 'string' ? d.tenantId : '',
+      tenantUsername:
+        typeof d.tenantUsername === 'string' ? d.tenantUsername : '',
+      propertyId: typeof d.propertyId === 'string' ? d.propertyId : '',
+      roomId: typeof d.roomId === 'string' ? d.roomId : '',
+      terminationRequested: d.terminationRequested === true,
+    };
+  });
+
+  // Batch-resolve tenant profiles + property address labels.
+  const profiles = await loadTenantProfiles(rows.map((r) => r.tenantId));
+  const propertyLabels = new Map<string, string>();
+  const propertyIds = [
+    ...new Set(rows.map((r) => r.propertyId).filter((id) => id !== '')),
+  ];
+  if (propertyIds.length > 0) {
+    const propRefs = propertyIds.map((id) =>
+      db.collection('properties').doc(id)
+    );
+    const propSnaps = await db.getAll(...propRefs);
+    for (const propSnap of propSnaps) {
+      if (!propSnap.exists) continue;
+      const p = propSnap.data() ?? {};
+      const street = typeof p.address === 'string' ? p.address : '';
+      const civic = typeof p.civic === 'string' ? p.civic : '';
+      const city = typeof p.city === 'string' ? p.city : '';
+      const label =
+        [`${street} ${civic}`.trim(), city].filter((s) => s).join(', ') ||
+        propSnap.id;
+      propertyLabels.set(propSnap.id, label);
+    }
+  }
+
+  const out: OperateActiveTenant[] = rows.map((r) => ({
+    ...r,
+    propertyLabel: propertyLabels.get(r.propertyId) ?? '(unknown property)',
+    profile: profiles.get(r.tenantId) ?? null,
+  }));
+  // Group-friendly ordering: by property label, then tenant name.
+  out.sort((a, b) => {
+    if (a.propertyLabel !== b.propertyLabel) {
+      return a.propertyLabel.localeCompare(b.propertyLabel);
+    }
+    return (a.profile?.displayName ?? a.tenantUsername).localeCompare(
+      b.profile?.displayName ?? b.tenantUsername
+    );
+  });
+  return out;
+}
 
 export interface OperateChatsSummary {
   chatId: string;

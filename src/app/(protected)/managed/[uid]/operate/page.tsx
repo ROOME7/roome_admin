@@ -17,18 +17,30 @@ import { notFound } from 'next/navigation';
 import type { Timestamp } from 'firebase-admin/firestore';
 import { serverDb } from '@/lib/firebase-admin';
 import type {
+  OperateActiveTenant,
   OperateApplicationSummary,
   OperateChatsSummary,
   OperateListingSummary,
   StripePartnerSnapshot,
 } from './actions';
-import { getStripePartnerSnapshot, loadTenantProfiles } from './actions';
+import {
+  getStripePartnerSnapshot,
+  loadActiveTenants,
+  loadTenantProfiles,
+} from './actions';
 import { ChatsTab } from './_components/chats-tab';
 import { ListingsTab } from './_components/listings-tab';
 import { ApplicationsTab } from './_components/applications-tab';
+import { TenantsTab } from './_components/tenants-tab';
 import { StripeTab } from './_components/stripe-tab';
 
-const OPERATE_TABS = ['chats', 'listings', 'applications', 'stripe'] as const;
+const OPERATE_TABS = [
+  'chats',
+  'listings',
+  'applications',
+  'tenants',
+  'stripe',
+] as const;
 type OperateTab = (typeof OPERATE_TABS)[number];
 
 function asTab(raw: string | string[] | undefined): OperateTab {
@@ -300,7 +312,7 @@ export default async function OperatePage({
     disputes: [],
     disputesError: null,
   };
-  const [chats, listings, applications, stripe] = await Promise.all([
+  const [chats, listings, applications, tenants, stripe] = await Promise.all([
     tab === 'chats' ? loadChats(uid) : Promise.resolve([] as OperateChatsSummary[]),
     tab === 'listings'
       ? loadListings(uid)
@@ -308,6 +320,9 @@ export default async function OperatePage({
     tab === 'applications'
       ? loadApplications(uid)
       : Promise.resolve([] as OperateApplicationSummary[]),
+    tab === 'tenants'
+      ? loadActiveTenants(uid)
+      : Promise.resolve([] as OperateActiveTenant[]),
     tab === 'stripe'
       ? getStripePartnerSnapshot(uid).then((res) =>
           res.ok ? res.snapshot : emptyStripe
@@ -350,6 +365,13 @@ export default async function OperatePage({
           disabled={Boolean(lockedReason)}
         />
       )}
+      {tab === 'tenants' && (
+        <TenantsTab
+          uid={uid}
+          tenants={tenants}
+          disabled={Boolean(lockedReason)}
+        />
+      )}
       {tab === 'stripe' && <StripeTab snapshot={stripe} />}
     </div>
   );
@@ -360,6 +382,7 @@ function TabsRow({ uid, active }: { uid: string; active: OperateTab }) {
     { value: 'chats', label: 'Chats' },
     { value: 'listings', label: 'Listings' },
     { value: 'applications', label: 'Applications' },
+    { value: 'tenants', label: 'Tenants' },
     { value: 'stripe', label: 'Stripe' },
   ];
   return (
