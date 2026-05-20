@@ -26,6 +26,21 @@ const MAX_TEXT = 500;
 const MAX_MESSAGE = 4_000;
 const MAX_REASON = 1_000;
 
+// Firestore Timestamp → JS Date, tolerant of already-Date values and the
+// occasional missing field. Mirrors the helper in page.tsx.
+function tsToDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'object' && value !== null && 'toDate' in value) {
+    try {
+      return (value as { toDate: () => Date }).toDate();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 type LoadTargetResult =
   | { ok: false; error: string }
   | {
@@ -99,31 +114,45 @@ export async function sendChatMessageAs(
   }
 
   const msgRef = chatRef.collection('messages').doc();
-  const sentAt = FieldValue.serverTimestamp();
+  const now = FieldValue.serverTimestamp();
 
+  // SCHEMA WARNING (2026-05-19 client feedback): this MUST match the
+  // Flutter chat schema exactly — ChatsRepositoryImpl.sendMessage +
+  // Chat.fromFirestore / ChatMessage.fromFirestore. The previous
+  // implementation wrote a v2-style shape (`text`, `sentAt`,
+  // `lastMessage` as a MAP, `updatedAt`, an `unread` map) that the
+  // Flutter app never adopted. Reading it crashed the tenant's chat
+  // list — Chat.lastMessage does `raw['lastMessage'] as String?`, and
+  // casting a Map to String throws. The message thread also dropped
+  // the message because streamMessages orders by `timestamp` and the
+  // doc only had `sentAt`.
+  //
+  // Flutter message doc shape: content / type / imageUrls / contractId
+  // / senderId / timestamp. Flutter chat doc rollup: lastUpdate /
+  // lastMessage(STRING) / lastSenderId / isRead.
   const batch = db.batch();
   batch.set(msgRef, {
-    senderId: targetUid, // partner on paper, admin in audit fields
+    content: body,
     type: 'text',
-    text: body,
-    attachmentUrl: null,
-    attachmentMimeType: null,
-    attachmentSizeBytes: null,
-    sentAt,
-    readBy: [],
+    imageUrls: null,
+    contractId: null,
+    senderId: targetUid, // partner on paper, admin in the audit fields
+    timestamp: now,
     _impersonatedByAdminUid: adminSession.uid,
-    _impersonatedAt: sentAt,
+    _impersonatedAt: now,
   });
 
-  // Bump chat-level lastMessage + updatedAt + unread counter on recipient.
+  // Chat-level rollup — exactly the fields ChatsRepositoryImpl.sendMessage
+  // writes so the tenant's chat list re-sorts + previews correctly.
+  // `isRead:false` + `lastSenderId` is how Flutter derives the unread
+  // badge (Chat.hasUnreadFor); there is no per-user `unread` map.
   batch.update(chatRef, {
-    lastMessage: {
-      text: body,
-      senderId: targetUid,
-      sentAt,
-    },
-    updatedAt: sentAt,
-    [`unread.${recipientUid}`]: FieldValue.increment(1),
+    lastUpdate: now,
+    lastMessage: body,
+    lastSenderId: targetUid,
+    isRead: false,
+    _impersonatedByAdminUid: adminSession.uid,
+    _impersonatedAt: now,
   });
 
   await batch.commit();
@@ -142,6 +171,77 @@ export async function sendChatMessageAs(
 
   revalidatePath(`/managed/${targetUid}/operate`);
   return { ok: true, messageId: msgRef.id };
+}
+
+// ---------------------------------------------------------------------------
+// loadChatThreadAs — read-only fetch of a chat's full message thread so the
+// admin can see the conversation before replying (2026-05-19 client
+// feedback — "I can't see the full chat"). Read-only, so it doesn't go
+// through loadManagedTarget's suspended/archived gate; the admin should be
+// able to READ a conversation even on a locked account.
+// ---------------------------------------------------------------------------
+
+export async function loadChatThreadAs(
+  targetUid: string,
+  chatId: string
+): Promise<ActionResult<{ messages: OperateChatMessage[] }>> {
+  await requireAdminSession();
+
+  if (typeof targetUid !== 'string' || !targetUid) {
+    return { ok: false, error: 'Missing target user id.' };
+  }
+  if (typeof chatId !== 'string' || !chatId) {
+    return { ok: false, error: 'Missing chat id.' };
+  }
+
+  const db = serverDb();
+  const chatSnap = await db.collection('chats').doc(chatId).get();
+  if (!chatSnap.exists) return { ok: false, error: 'Chat not found.' };
+  const chat = chatSnap.data() ?? {};
+
+  // Membership check — the partner must actually be in this chat. Flutter
+  // chats carry a `participants` array; the v2 Cloud Function also writes
+  // tenantId/landlordId, so check all three for robustness.
+  const participants = Array.isArray(chat.participants)
+    ? (chat.participants as unknown[])
+    : [];
+  const isMember =
+    participants.includes(targetUid) ||
+    chat.tenantId === targetUid ||
+    chat.landlordId === targetUid;
+  if (!isMember) {
+    return { ok: false, error: 'Partner is not a participant of this chat.' };
+  }
+
+  // Flutter orders messages by `timestamp`. Read ascending so the thread
+  // renders oldest → newest like a normal chat transcript.
+  const msgSnap = await db
+    .collection('chats')
+    .doc(chatId)
+    .collection('messages')
+    .orderBy('timestamp', 'asc')
+    .limit(200)
+    .get();
+
+  const messages: OperateChatMessage[] = msgSnap.docs.map((d) => {
+    const m = d.data();
+    return {
+      messageId: d.id,
+      senderId: typeof m.senderId === 'string' ? m.senderId : '',
+      content: typeof m.content === 'string' ? m.content : '',
+      type: typeof m.type === 'string' ? m.type : 'text',
+      imageUrls: Array.isArray(m.imageUrls)
+        ? (m.imageUrls.filter((u): u is string => typeof u === 'string') as string[])
+        : [],
+      sentAt: tsToDate(m.timestamp),
+      sentByAdminUid:
+        typeof m._impersonatedByAdminUid === 'string'
+          ? m._impersonatedByAdminUid
+          : null,
+    };
+  });
+
+  return { ok: true, messages };
 }
 
 // ---------------------------------------------------------------------------
@@ -508,9 +608,29 @@ export async function respondToApplicationAs(
 export interface OperateChatsSummary {
   chatId: string;
   counterpartyUid: string;
+  // Counterparty display fields, resolved from userProfiles/{uid} by the
+  // page loader. Null when the profile doc is missing.
+  counterpartyName: string | null;
+  counterpartyPhotoUrl: string | null;
+  counterpartyAge: number | null;
+  counterpartyProfession: string | null;
   lastMessageText: string | null;
   lastMessageAt: Date | null;
-  unread: number;
+  // True when the partner has an unread message — derived the same way
+  // Flutter's Chat.hasUnreadFor does (isRead=false AND the last sender
+  // isn't the partner).
+  hasUnread: boolean;
+}
+
+// One message in a chat thread, as surfaced to the admin operate UI.
+export interface OperateChatMessage {
+  messageId: string;
+  senderId: string;
+  content: string;
+  type: string;
+  imageUrls: string[];
+  sentAt: Date | null;
+  sentByAdminUid: string | null;
 }
 
 export interface OperateListingSummary {
@@ -545,6 +665,76 @@ export interface OperateApplicationSummary {
   roomId: string;
   listingId: string | null;
   appliedAt: Date | null;
+  // Applicant profile, resolved from userProfiles/{tenantId} by the page
+  // loader. Gives the admin the same screening view a private owner gets
+  // on the Flutter tenant-request-detail screen (2026-05-19 client
+  // feedback). Null when the field is absent on the profile doc.
+  profile: OperateTenantProfile | null;
+}
+
+// Shared applicant/counterparty profile shape — read from userProfiles/{uid}.
+// Covers the identity fields + the lifestyle "behavior" sliders the Flutter
+// tenant-request-detail screen renders for private owners.
+export interface OperateTenantProfile {
+  uid: string;
+  displayName: string | null;
+  photoUrl: string | null;
+  age: number | null;
+  profession: string | null;
+  professionalArea: string | null;
+  description: string | null;
+  // Lifestyle sliders, 1–5. Null when the tenant hasn't filled them in.
+  cleanlinessLevel: number | null;
+  noiseLevel: number | null;
+  sleepSchedule: number | null;
+  sociability: number | null;
+  guests: number | null;
+  isSmoker: boolean | null;
+  hasPets: boolean | null;
+  cooksOften: boolean | null;
+}
+
+// Reads userProfiles/{uid} for a batch of uids and maps each to an
+// OperateTenantProfile. Used by the chats + applications tabs. Returns a
+// Map keyed by uid; uids with no profile doc are simply absent.
+export async function loadTenantProfiles(
+  uids: string[]
+): Promise<Map<string, OperateTenantProfile>> {
+  const out = new Map<string, OperateTenantProfile>();
+  const unique = [...new Set(uids.filter((u) => typeof u === 'string' && u))];
+  if (unique.length === 0) return out;
+
+  const db = serverDb();
+  const refs = unique.map((u) => db.collection('userProfiles').doc(u));
+  const snaps = await db.getAll(...refs);
+  for (const snap of snaps) {
+    if (!snap.exists) continue;
+    const d = snap.data() ?? {};
+    const num = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? v : null;
+    const bool = (v: unknown): boolean | null =>
+      typeof v === 'boolean' ? v : null;
+    const str = (v: unknown): string | null =>
+      typeof v === 'string' && v.length > 0 ? v : null;
+    out.set(snap.id, {
+      uid: snap.id,
+      displayName: str(d.displayUsername) ?? str(d.username) ?? str(d.name),
+      photoUrl: str(d.photoUrl) ?? str(d.profilePicture),
+      age: num(d.age),
+      profession: str(d.profession),
+      professionalArea: str(d.professionalArea),
+      description: str(d.description) ?? str(d.shortBio),
+      cleanlinessLevel: num(d.cleanlinessLevel),
+      noiseLevel: num(d.noiseLevel),
+      sleepSchedule: num(d.sleepSchedule),
+      sociability: num(d.sociability),
+      guests: num(d.guests),
+      isSmoker: bool(d.isSmoker),
+      hasPets: bool(d.hasPets),
+      cooksOften: bool(d.cooksOften),
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

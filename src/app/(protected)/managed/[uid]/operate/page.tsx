@@ -22,7 +22,7 @@ import type {
   OperateListingSummary,
   StripePartnerSnapshot,
 } from './actions';
-import { getStripePartnerSnapshot } from './actions';
+import { getStripePartnerSnapshot, loadTenantProfiles } from './actions';
 import { ChatsTab } from './_components/chats-tab';
 import { ListingsTab } from './_components/listings-tab';
 import { ApplicationsTab } from './_components/applications-tab';
@@ -73,49 +73,63 @@ async function loadPartner(uid: string) {
 
 async function loadChats(uid: string): Promise<OperateChatsSummary[]> {
   const db = serverDb();
-  // Partner may be tenant or landlord in any given chat. Two queries.
-  //
-  // NOTE: we deliberately don't .orderBy('updatedAt') here even though we
-  // want most-recent-first, because the composite indexes
-  // (landlordId/tenantId × updatedAt desc) aren't deployed yet — see
-  // firestore.indexes.json. Sort happens in memory after the union below.
-  // For partner volumes under ~50 chats this is fine. To restore proper
-  // ordering+pagination, run `firebase deploy --only firestore:indexes`
-  // and put the .orderBy back.
-  const [asLandlord, asTenant] = await Promise.all([
-    db
-      .collection('chats')
-      .where('landlordId', '==', uid)
-      .limit(50)
-      .get(),
-    db
-      .collection('chats')
-      .where('tenantId', '==', uid)
-      .limit(50)
-      .get(),
-  ]);
+  // Query by `participants array-contains` — the canonical Flutter chat
+  // membership field. The old landlordId/tenantId pair of queries missed
+  // invite-chats created by add_house_screen.dart (which writes only
+  // `participants`). A single array-contains needs no composite index.
+  const snap = await db
+    .collection('chats')
+    .where('participants', 'array-contains', uid)
+    .limit(100)
+    .get();
 
-  const out: OperateChatsSummary[] = [];
-  const seen = new Set<string>();
-  for (const doc of [...asLandlord.docs, ...asTenant.docs]) {
-    if (seen.has(doc.id)) continue;
-    seen.add(doc.id);
+  // SCHEMA NOTE (2026-05-19 fix): the Flutter chat doc stores `lastMessage`
+  // as a STRING, the rollup timestamp as `lastUpdate`, and derives unread
+  // from `isRead` + `lastSenderId` — there is no per-user `unread` map.
+  // The previous loader read a v2 shape the app never adopted, so the
+  // preview + timestamp + unread badge were always blank.
+  const rows = snap.docs.map((doc) => {
     const d = doc.data();
-    const counterparty = d.landlordId === uid ? d.tenantId : d.landlordId;
-    const last = (d.lastMessage ?? {}) as Record<string, unknown>;
-    out.push({
+    const participants: string[] = Array.isArray(d.participants)
+      ? (d.participants.filter((p: unknown): p is string => typeof p === 'string'))
+      : [];
+    const counterparty =
+      participants.find((p) => p !== uid) ??
+      (d.landlordId === uid ? d.tenantId : d.landlordId) ??
+      '';
+    const lastSenderId =
+      typeof d.lastSenderId === 'string' ? d.lastSenderId : '';
+    // Flutter Chat.hasUnreadFor: !isRead && lastSenderId != uid.
+    const isRead = d.isRead !== false;
+    return {
       chatId: doc.id,
       counterpartyUid: typeof counterparty === 'string' ? counterparty : '',
       lastMessageText:
-        typeof last.text === 'string' ? (last.text as string) : null,
-      lastMessageAt: tsToDate(last.sentAt),
-      unread:
-        d.unread && typeof d.unread === 'object'
-          ? (d.unread[uid] as number) ?? 0
-          : 0,
-    });
-  }
-  out.sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0));
+        typeof d.lastMessage === 'string' ? (d.lastMessage as string) : null,
+      lastMessageAt: tsToDate(d.lastUpdate) ?? tsToDate(d.updatedAt),
+      hasUnread: !isRead && lastSenderId !== '' && lastSenderId !== uid,
+    };
+  });
+
+  // Resolve each counterparty's profile so the chat list shows a name +
+  // age instead of a raw uid (2026-05-19 client feedback).
+  const profiles = await loadTenantProfiles(
+    rows.map((r) => r.counterpartyUid)
+  );
+
+  const out: OperateChatsSummary[] = rows.map((r) => {
+    const p = profiles.get(r.counterpartyUid);
+    return {
+      ...r,
+      counterpartyName: p?.displayName ?? null,
+      counterpartyPhotoUrl: p?.photoUrl ?? null,
+      counterpartyAge: p?.age ?? null,
+      counterpartyProfession: p?.profession ?? null,
+    };
+  });
+  out.sort(
+    (a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0)
+  );
   return out;
 }
 
@@ -212,7 +226,7 @@ async function loadApplications(
     .limit(50)
     .get();
 
-  const out = snap.docs.map((doc) => {
+  const rows = snap.docs.map((doc) => {
     const d = doc.data();
     return {
       contractId: doc.id,
@@ -221,9 +235,21 @@ async function loadApplications(
         typeof d.tenantDisplayName === 'string' ? d.tenantDisplayName : '(tenant)',
       roomId: typeof d.roomId === 'string' ? d.roomId : '',
       listingId: typeof d.listingId === 'string' ? d.listingId : null,
-      appliedAt: tsToDate(d.appliedAt),
+      // Contract docs use `timestamp` (add_house_screen) or `appliedAt`
+      // depending on the path that created them — tolerate both.
+      appliedAt: tsToDate(d.appliedAt) ?? tsToDate(d.timestamp),
     };
   });
+
+  // Resolve applicant profiles so the admin sees name / age / occupation /
+  // behaviour — the same screening view a private owner gets on the
+  // Flutter tenant-request-detail screen (2026-05-19 client feedback).
+  const profiles = await loadTenantProfiles(rows.map((r) => r.tenantId));
+
+  const out: OperateApplicationSummary[] = rows.map((r) => ({
+    ...r,
+    profile: profiles.get(r.tenantId) ?? null,
+  }));
   out.sort(
     (a, b) => (b.appliedAt?.getTime() ?? 0) - (a.appliedAt?.getTime() ?? 0)
   );
