@@ -129,8 +129,17 @@ function ApplicationRow({
   const [showBehaviour, setShowBehaviour] = useState(false);
   const profile = application.profile;
 
-  const displayName =
-    profile?.displayName ?? application.tenantDisplayName;
+  // Real name (name + surname) is the headline when available; the
+  // @username drops to a secondary line. Client asked to see both
+  // (2026-05-19 follow-up). Falls back to the username alone for legacy
+  // profiles that never wrote name/surname.
+  const username = profile?.displayName ?? application.tenantDisplayName;
+  const fullName = [profile?.name, profile?.surname]
+    .filter((p): p is string => Boolean(p && p.trim()))
+    .join(' ')
+    .trim();
+  const displayName = fullName || username;
+  const showUsernameLine = fullName.length > 0 && username !== fullName;
   // Occupation line — profession + field of study when present.
   const occupationBits = [
     profile?.age != null ? `${profile.age} yrs` : null,
@@ -148,6 +157,11 @@ function ApplicationRow({
           <h3 className="truncate text-sm font-semibold text-foreground">
             {displayName}
           </h3>
+          {showUsernameLine && (
+            <p className="truncate text-xs font-medium text-muted-foreground">
+              @{username.replace(/^@/, '')}
+            </p>
+          )}
           <p className="mt-0.5 text-xs text-muted-foreground">
             {occupationBits.length > 0
               ? occupationBits.join(' · ')

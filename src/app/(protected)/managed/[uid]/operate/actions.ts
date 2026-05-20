@@ -677,7 +677,13 @@ export interface OperateApplicationSummary {
 // tenant-request-detail screen renders for private owners.
 export interface OperateTenantProfile {
   uid: string;
+  // `displayName` is the @username handle. `name` / `surname` are the
+  // tenant's real first + last name — written onto userProfiles/{uid} by
+  // the Flutter complete-profile + tenant-profile-edit screens. Both are
+  // null for legacy profiles that predate that denorm.
   displayName: string | null;
+  name: string | null;
+  surname: string | null;
   photoUrl: string | null;
   age: number | null;
   profession: string | null;
@@ -718,7 +724,9 @@ export async function loadTenantProfiles(
       typeof v === 'string' && v.length > 0 ? v : null;
     out.set(snap.id, {
       uid: snap.id,
-      displayName: str(d.displayUsername) ?? str(d.username) ?? str(d.name),
+      displayName: str(d.displayUsername) ?? str(d.username),
+      name: str(d.name),
+      surname: str(d.surname),
       photoUrl: str(d.photoUrl) ?? str(d.profilePicture),
       age: num(d.age),
       profession: str(d.profession),
