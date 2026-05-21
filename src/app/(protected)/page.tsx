@@ -23,11 +23,24 @@ async function loadCounts(): Promise<{
   pendingB2b: number;
   managed: number;
   suspended: number;
+  tenants: number;
+  landlords: number;
 }> {
   const db = serverDb();
-  // Three count() aggregations in parallel — each is a single round-trip
-  // that returns just the integer, no doc bodies. Cheap.
-  const [pendingB2bSnap, managedSnap, suspendedSnap] = await Promise.all([
+  // count() aggregations in parallel — each is a single round-trip that
+  // returns just the integer, no doc bodies. Cheap.
+  //
+  // Tenants / landlords are counted on the `role` field ('tenant' |
+  // 'owner') — written by the Flutter signup flow on every account, so
+  // it's the reliable discriminator. "Landlords of all types" = every
+  // owner, B2C and B2B alike (ownerType only splits them further).
+  const [
+    pendingB2bSnap,
+    managedSnap,
+    suspendedSnap,
+    tenantsSnap,
+    landlordsSnap,
+  ] = await Promise.all([
     db
       .collection('b2bOwnerRequests')
       .where('status', '==', 'pending')
@@ -39,11 +52,15 @@ async function loadCounts(): Promise<{
       .where('suspended.active', '==', true)
       .count()
       .get(),
+    db.collection('users').where('role', '==', 'tenant').count().get(),
+    db.collection('users').where('role', '==', 'owner').count().get(),
   ]);
   return {
     pendingB2b: pendingB2bSnap.data().count,
     managed: managedSnap.data().count,
     suspended: suspendedSnap.data().count,
+    tenants: tenantsSnap.data().count,
+    landlords: landlordsSnap.data().count,
   };
 }
 
@@ -65,7 +82,7 @@ export default async function DashboardPage() {
   const counts =
     countsResult.status === 'fulfilled'
       ? countsResult.value
-      : { pendingB2b: 0, managed: 0, suspended: 0 };
+      : { pendingB2b: 0, managed: 0, suspended: 0, tenants: 0, landlords: 0 };
   const activity: AdminActionEntry[] =
     activityResult.status === 'fulfilled' ? activityResult.value : [];
 
@@ -80,7 +97,19 @@ export default async function DashboardPage() {
         </p>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <StatCard
+          label="Total tenants"
+          value={counts.tenants}
+          href="/users?role=tenant"
+          tone="neutral"
+        />
+        <StatCard
+          label="Total landlords"
+          value={counts.landlords}
+          href="/users?role=landlord"
+          tone="neutral"
+        />
         <StatCard
           label="Pending B2B requests"
           value={counts.pendingB2b}
