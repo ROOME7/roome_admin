@@ -78,6 +78,15 @@ function UsersIcon() {
   );
 }
 
+function FinancesIcon() {
+  return (
+    <Icon>
+      <path d="M3 3v18h18" />
+      <path d="m7 14 4-4 3 3 6-7" />
+    </Icon>
+  );
+}
+
 // Brand mark — Roome wordmark with a roome-blue square. Drop in real
 // artwork later by swapping this element; the colors come from the
 // design tokens so they stay aligned with the marketing site / app.
@@ -118,6 +127,11 @@ export default function Sidebar({ user }: SidebarProps) {
         aria-label="Primary"
       >
         <SidebarLink href="/" label="Dashboard" icon={<DashboardIcon />} exact />
+        <SidebarLink
+          href="/finances"
+          label="Finances"
+          icon={<FinancesIcon />}
+        />
         <SidebarLink href="/users" label="Users" icon={<UsersIcon />} />
         <SidebarLink
           href="/supervision"
