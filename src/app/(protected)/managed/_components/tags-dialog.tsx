@@ -8,6 +8,7 @@ import { useState, useTransition, type KeyboardEvent } from 'react';
 import { setManagedAccountTags } from '../actions';
 import type { ManagedAccount } from '../_lib/types';
 import { InputStyles, Overlay } from './dialog-primitives';
+import { useT } from '@/i18n/client';
 
 const SUGGESTED_TAGS = [
   'pilot',
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function TagsButton({ account }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -34,7 +36,7 @@ export function TagsButton({ account }: Props) {
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Tags
+        {t('managed.tagsButton')}
         {account.adminTags.length > 0 && (
           <span className="ml-1.5 inline-block rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
             {account.adminTags.length}
@@ -48,6 +50,7 @@ export function TagsButton({ account }: Props) {
 }
 
 function TagsDialog({ account, onClose }: { account: ManagedAccount; onClose: () => void }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [tags, setTags] = useState<string[]>([...account.adminTags]);
@@ -55,23 +58,23 @@ function TagsDialog({ account, onClose }: { account: ManagedAccount; onClose: ()
 
   function tryAdd(raw: string) {
     setError(null);
-    const t = raw.trim().toLowerCase();
-    if (!t) return;
-    if (!TAG_RE.test(t)) {
-      setError(`"${t}" is invalid — use lowercase letters, digits, dashes (1–40 chars).`);
+    const tag = raw.trim().toLowerCase();
+    if (!tag) return;
+    if (!TAG_RE.test(tag)) {
+      setError(t('managed.tagsInvalidError', { tag }));
       return;
     }
-    if (tags.includes(t)) return;
+    if (tags.includes(tag)) return;
     if (tags.length >= MAX_TAGS) {
-      setError(`Max ${MAX_TAGS} tags per account.`);
+      setError(t('managed.tagsMaxError', { max: MAX_TAGS }));
       return;
     }
-    setTags([...tags, t].sort());
+    setTags([...tags, tag].sort());
     setDraft('');
   }
 
-  function remove(t: string) {
-    setTags(tags.filter((x) => x !== t));
+  function remove(tag: string) {
+    setTags(tags.filter((x) => x !== tag));
   }
 
   function onKey(e: KeyboardEvent<HTMLInputElement>) {
@@ -100,25 +103,25 @@ function TagsDialog({ account, onClose }: { account: ManagedAccount; onClose: ()
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Tags</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('managed.tagsDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Categorize this account for filtering and reporting. Visible only to admins.
+          {t('managed.tagsDialogSubtitle')}
         </p>
 
         <div className="mt-5 space-y-3">
           <div className="flex min-h-[2.5rem] flex-wrap items-center gap-2 rounded-md border border-input bg-surface p-2">
-            {tags.map((t) => (
+            {tags.map((tag) => (
               <span
-                key={t}
+                key={tag}
                 className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground"
               >
-                {t}
+                {tag}
                 <button
                   type="button"
-                  onClick={() => remove(t)}
+                  onClick={() => remove(tag)}
                   disabled={pending}
                   className="rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
-                  aria-label={`Remove ${t}`}
+                  aria-label={t('managed.tagsRemoveAriaLabel', { tag })}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -141,13 +144,13 @@ function TagsDialog({ account, onClose }: { account: ManagedAccount; onClose: ()
               onBlur={() => draft && tryAdd(draft)}
               disabled={pending || tags.length >= MAX_TAGS}
               className="min-w-[8rem] flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              placeholder={tags.length === 0 ? 'Type a tag and press Enter…' : ''}
+              placeholder={tags.length === 0 ? t('managed.tagsInputPlaceholder') : ''}
             />
           </div>
 
           {unsuggested.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">Suggested:</span>
+              <span className="text-xs text-muted-foreground">{t('managed.tagsSuggested')}</span>
               {unsuggested.map((s) => (
                 <button
                   key={s}
@@ -179,7 +182,7 @@ function TagsDialog({ account, onClose }: { account: ManagedAccount; onClose: ()
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -187,7 +190,7 @@ function TagsDialog({ account, onClose }: { account: ManagedAccount; onClose: ()
             disabled={pending}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Saving…' : 'Save tags'}
+            {pending ? t('managed.tagsSaving') : t('managed.tagsSave')}
           </button>
         </div>
 

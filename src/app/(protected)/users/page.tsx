@@ -13,6 +13,8 @@ import 'server-only';
 import Link from 'next/link';
 import { serverDb } from '@/lib/firebase-admin';
 import { requireAdminSession } from '@/lib/auth';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 import {
   asRoleFilter,
   mapUserRow,
@@ -79,6 +81,7 @@ export default async function UsersPage({
   searchParams: SearchParams;
 }) {
   await requireAdminSession();
+  const t = await getT();
   const params = await searchParams;
   const role = asRoleFilter(params.role);
   const q = typeof params.q === 'string' ? params.q.trim() : '';
@@ -89,15 +92,14 @@ export default async function UsersPage({
     <div className="space-y-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Users
+          {t('users.title')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Every account on the platform — tenants and landlords of all types.
-          Open a row to see the full record.
+          {t('users.subtitle')}
         </p>
       </header>
 
-      <FilterTabs active={role} counts={counts} q={q} />
+      <FilterTabs active={role} counts={counts} q={q} t={t} />
 
       <form method="GET" className="flex gap-2">
         <input type="hidden" name="role" value={role} />
@@ -105,21 +107,21 @@ export default async function UsersPage({
           type="search"
           name="q"
           defaultValue={q}
-          placeholder="Search name, email, company, or UID…"
+          placeholder={t('users.searchPlaceholder')}
           className="w-full max-w-md rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
         />
         <button
           type="submit"
           className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
         >
-          Search
+          {t('common.search')}
         </button>
         {q && (
           <Link
             href={`/users?role=${role}`}
             className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            Clear
+            {t('common.clear')}
           </Link>
         )}
       </form>
@@ -128,15 +130,15 @@ export default async function UsersPage({
         <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
           <p className="text-sm text-muted-foreground">
             {q
-              ? 'No users match that search.'
-              : 'No users in this category yet.'}
+              ? t('users.noSearchResults')
+              : t('users.noUsersInCategory')}
           </p>
         </section>
       ) : (
         <ul className="space-y-2">
           {list.map((u) => (
             <li key={u.uid}>
-              <UserRowCard user={u} />
+              <UserRowCard user={u} t={t} />
             </li>
           ))}
         </ul>
@@ -149,34 +151,36 @@ function FilterTabs({
   active,
   counts,
   q,
+  t,
 }: {
   active: RoleFilter;
   counts: Record<RoleFilter, number>;
   q: string;
+  t: TFunc;
 }) {
   const tabs: { value: RoleFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'tenant', label: 'Tenants' },
-    { value: 'landlord', label: 'Landlords' },
+    { value: 'all', label: t('users.tabAll') },
+    { value: 'tenant', label: t('users.tabTenants') },
+    { value: 'landlord', label: t('users.tabLandlords') },
   ];
   const qs = q ? `&q=${encodeURIComponent(q)}` : '';
   return (
     <div className="inline-flex rounded-lg border border-border bg-surface p-1">
-      {tabs.map((t) => {
-        const isActive = t.value === active;
+      {tabs.map((tab) => {
+        const isActive = tab.value === active;
         return (
           <Link
-            key={t.value}
-            href={`/users?role=${t.value}${qs}`}
+            key={tab.value}
+            href={`/users?role=${tab.value}${qs}`}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               isActive
                 ? 'bg-secondary text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {t.label}
+            {tab.label}
             <span className="ml-1.5 text-xs text-muted-foreground">
-              {counts[t.value]}
+              {counts[tab.value]}
             </span>
           </Link>
         );
@@ -210,7 +214,13 @@ const STATUS_STYLES: Record<UserRow['status'], string> = {
   archived: 'bg-destructive/10 text-destructive',
 };
 
-function UserRowCard({ user }: { user: UserRow }) {
+const STATUS_KEYS: Record<UserRow['status'], string> = {
+  active: 'common.statusActive',
+  suspended: 'common.statusSuspended',
+  archived: 'common.statusArchived',
+};
+
+function UserRowCard({ user, t }: { user: UserRow; t: TFunc }) {
   const headline = user.fullName || user.companyName || user.displayName;
   return (
     <Link
@@ -224,28 +234,28 @@ function UserRowCard({ user }: { user: UserRow }) {
             {headline}
           </span>
           <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {roleLabel(user.kind, user.ownerType)}
+            {roleLabel(user.kind, user.ownerType, t)}
           </span>
           {user.managed && (
             <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-              Managed
+              {t('users.badgeManaged')}
             </span>
           )}
           {!user.emailVerified && (
             <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-              Email unverified
+              {t('users.badgeEmailUnverified')}
             </span>
           )}
         </div>
         <p className="truncate text-xs text-muted-foreground">
-          {user.email || '(no email)'} · @{user.displayName.replace(/^@/, '')}
+          {user.email || t('users.noEmail')} · @{user.displayName.replace(/^@/, '')}
         </p>
       </div>
       <div className="hidden shrink-0 text-right sm:block">
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[user.status]}`}
         >
-          {user.status}
+          {t(STATUS_KEYS[user.status])}
         </span>
         <p className="mt-1 text-xs text-muted-foreground">
           {user.createdAt ? dateFormatter.format(user.createdAt) : '—'}

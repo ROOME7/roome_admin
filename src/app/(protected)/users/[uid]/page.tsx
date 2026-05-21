@@ -10,6 +10,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { serverDb } from '@/lib/firebase-admin';
 import { requireAdminSession } from '@/lib/auth';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 import { classify, deriveStatus, roleLabel, tsToDate } from '../_lib/user-model';
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -20,9 +22,9 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
 });
 
-function fmt(value: unknown): string {
+function fmt(value: unknown, t: TFunc): string {
   if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no');
   if (value instanceof Date) return dateFormatter.format(value);
   if (typeof value === 'number') return String(value);
   return String(value);
@@ -54,6 +56,7 @@ export default async function UserDetailPage({
   params: Params;
 }) {
   await requireAdminSession();
+  const t = await getT();
   const { uid } = await params;
 
   const db = serverDb();
@@ -98,11 +101,18 @@ export default async function UserDetailPage({
       ? (profile.reputation as Record<string, unknown>)
       : {};
 
+  const statusBadgeKey =
+    status === 'active'
+      ? 'common.statusActive'
+      : status === 'suspended'
+        ? 'common.statusSuspended'
+        : 'common.statusArchived';
+
   return (
     <div className="space-y-8">
       <div className="text-sm text-muted-foreground">
         <Link href="/users" className="hover:text-foreground">
-          ← Users
+          {t('users.backToUsers')}
         </Link>
       </div>
 
@@ -125,10 +135,10 @@ export default async function UserDetailPage({
             {headline}
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {fmt(d.email)} · @{displayName.replace(/^@/, '')}
+            {fmt(d.email, t)} · @{displayName.replace(/^@/, '')}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge tone="neutral">{roleLabel(kind, ownerType)}</Badge>
+            <Badge tone="neutral">{roleLabel(kind, ownerType, t)}</Badge>
             <Badge
               tone={
                 status === 'active'
@@ -138,125 +148,127 @@ export default async function UserDetailPage({
                     : 'bad'
               }
             >
-              {status}
+              {t(statusBadgeKey)}
             </Badge>
-            {d.managedBy && <Badge tone="info">Managed account</Badge>}
+            {d.managedBy && <Badge tone="info">{t('users.badgeManagedAccount')}</Badge>}
           </div>
         </div>
       </header>
 
-      <Section title="Identity & contact">
-        <Field label="Full name" value={fullName} />
-        <Field label="Username" value={displayName} />
-        <Field label="Email" value={d.email} />
-        <Field label="Email verified" value={d.emailVerified === true} />
-        <Field label="Phone" value={d.phoneNumber} />
-        <Field label="UID" value={uid} mono />
+      <Section title={t('users.sectionIdentity')}>
+        <Field label={t('users.fieldFullName')} value={fmt(fullName, t)} />
+        <Field label={t('users.fieldUsername')} value={fmt(displayName, t)} />
+        <Field label={t('users.fieldEmail')} value={fmt(d.email, t)} />
+        <Field label={t('users.fieldEmailVerified')} value={fmt(d.emailVerified === true, t)} />
+        <Field label={t('users.fieldPhone')} value={fmt(d.phoneNumber, t)} />
+        <Field label="UID" value={fmt(uid, t)} mono />
       </Section>
 
-      <Section title="Account">
-        <Field label="Role" value={roleLabel(kind, ownerType)} />
-        <Field label="Profile completed" value={d.profileCompleted === true} />
-        <Field label="Created" value={tsToDate(d.createdAt)} />
+      <Section title={t('users.sectionAccount')}>
+        <Field label={t('users.fieldRole')} value={roleLabel(kind, ownerType, t)} />
+        <Field label={t('users.fieldProfileCompleted')} value={fmt(d.profileCompleted === true, t)} />
+        <Field label={t('users.fieldCreated')} value={fmt(tsToDate(d.createdAt), t)} />
         <Field
-          label="Last updated"
-          value={tsToDate(d.updatedAt)}
+          label={t('users.fieldLastUpdated')}
+          value={fmt(tsToDate(d.updatedAt), t)}
         />
-        <Field label="Auth provider" value={d.authProvider ?? 'password'} />
+        <Field label={t('users.fieldAuthProvider')} value={fmt(d.authProvider ?? 'password', t)} />
       </Section>
 
       {kind === 'tenant' && (
-        <Section title="Tenant profile">
-          <Field label="Age" value={d.age} />
-          <Field label="Gender" value={d.gender} />
-          <Field label="Profession" value={d.profession} />
-          <Field label="Field / area" value={d.professionalArea} />
-          <Field label="Cleanliness" value={scale(d.cleanlinessLevel)} />
-          <Field label="Noise" value={scale(d.noiseLevel)} />
-          <Field label="Sleep schedule" value={scale(d.sleepSchedule)} />
-          <Field label="Sociability" value={scale(d.sociability)} />
-          <Field label="Guests" value={scale(d.guests)} />
-          <Field label="Smoker" value={asBool(d.isSmoker)} />
-          <Field label="Has pets" value={asBool(d.hasPets)} />
-          <Field label="Cooks often" value={asBool(d.cooksOften)} />
-          <Field label="Bio" value={d.description} wide />
+        <Section title={t('users.sectionTenantProfile')}>
+          <Field label={t('users.fieldAge')} value={fmt(d.age, t)} />
+          <Field label={t('users.fieldGender')} value={fmt(d.gender, t)} />
+          <Field label={t('users.fieldProfession')} value={fmt(d.profession, t)} />
+          <Field label={t('users.fieldFieldArea')} value={fmt(d.professionalArea, t)} />
+          <Field label={t('users.fieldCleanliness')} value={scale(d.cleanlinessLevel)} />
+          <Field label={t('users.fieldNoise')} value={scale(d.noiseLevel)} />
+          <Field label={t('users.fieldSleepSchedule')} value={scale(d.sleepSchedule)} />
+          <Field label={t('users.fieldSociability')} value={scale(d.sociability)} />
+          <Field label={t('users.fieldGuests')} value={scale(d.guests)} />
+          <Field label={t('users.fieldSmoker')} value={fmt(asBool(d.isSmoker), t)} />
+          <Field label={t('users.fieldHasPets')} value={fmt(asBool(d.hasPets), t)} />
+          <Field label={t('users.fieldCooksOften')} value={fmt(asBool(d.cooksOften), t)} />
+          <Field label={t('users.fieldBio')} value={fmt(d.description, t)} wide />
         </Section>
       )}
 
       {kind === 'landlord' && (
-        <Section title="Landlord details">
-          <Field label="Owner type" value={ownerType === 'b2b' ? 'B2B (agency / company)' : 'B2C (private)'} />
-          <Field label="Company name" value={d.companyName} />
-          <Field label="VAT (Partita IVA)" value={d.vatNumber} mono />
-          <Field label="PEC" value={d.pec} />
-          <Field label="Properties owned" value={housesOwned} />
+        <Section title={t('users.sectionLandlord')}>
+          <Field label={t('users.fieldOwnerType')} value={ownerType === 'b2b' ? t('users.ownerTypeB2b') : t('users.ownerTypeB2c')} />
+          <Field label={t('users.fieldCompanyName')} value={fmt(d.companyName, t)} />
+          <Field label="VAT (Partita IVA)" value={fmt(d.vatNumber, t)} mono />
+          <Field label="PEC" value={fmt(d.pec, t)} />
+          <Field label={t('users.fieldProperties')} value={fmt(housesOwned, t)} />
           <Field
-            label="B2B approval status"
-            value={d.b2bApprovalStatus}
+            label={t('users.fieldB2bApproval')}
+            value={fmt(d.b2bApprovalStatus, t)}
           />
         </Section>
       )}
 
-      <Section title="Verification & reputation">
-        <Field label="Identity verification" value={d.identityVerificationStatus} />
-        <Field label="Verified tenant" value={badges.verifiedTenant === true} />
-        <Field label="Verified owner" value={badges.verifiedOwner === true} />
-        <Field label="Identity badge" value={badges.identityVerified === true} />
+      <Section title={t('users.sectionVerification')}>
+        <Field label={t('users.fieldIdentityVerification')} value={fmt(d.identityVerificationStatus, t)} />
+        <Field label={t('users.fieldVerifiedTenant')} value={fmt(badges.verifiedTenant === true, t)} />
+        <Field label={t('users.fieldVerifiedOwner')} value={fmt(badges.verifiedOwner === true, t)} />
+        <Field label={t('users.fieldIdentityBadge')} value={fmt(badges.identityVerified === true, t)} />
         <Field
-          label="Reviews"
-          value={
+          label={t('users.fieldReviews')}
+          value={fmt(
             typeof reputation.reviewCount === 'number'
               ? reputation.reviewCount
-              : (d.numeroRecensioni ?? 0)
-          }
+              : (d.numeroRecensioni ?? 0),
+            t
+          )}
         />
         <Field
-          label="Average rating"
-          value={
+          label={t('users.fieldAverageRating')}
+          value={fmt(
             typeof reputation.averageRating === 'number'
               ? reputation.averageRating
-              : (d.mediaRecensioni ?? null)
-          }
+              : (d.mediaRecensioni ?? null),
+            t
+          )}
         />
       </Section>
 
       <Section title="Stripe">
-        <Field label="Customer ID" value={d.stripeCustomerId} mono />
+        <Field label={t('users.fieldCustomerId')} value={fmt(d.stripeCustomerId, t)} mono />
         <Field
-          label="Connect account ID"
-          value={d.stripeConnectAccountId}
+          label={t('users.fieldConnectAccountId')}
+          value={fmt(d.stripeConnectAccountId, t)}
           mono
         />
         <Field
-          label="Connect charges enabled"
-          value={d.connectChargesEnabled === true}
+          label={t('users.fieldConnectChargesEnabled')}
+          value={fmt(d.connectChargesEnabled === true, t)}
         />
         <Field
-          label="Owner subscription"
-          value={sub ? (sub.status ?? 'unknown') : 'none'}
+          label={t('users.fieldOwnerSubscription')}
+          value={fmt(sub ? (sub.status ?? 'unknown') : 'none', t)}
         />
         <Field
-          label="Subscription ID"
-          value={sub ? sub.stripeSubscriptionId : null}
+          label={t('users.fieldSubscriptionId')}
+          value={fmt(sub ? sub.stripeSubscriptionId : null, t)}
           mono
         />
       </Section>
 
       {status !== 'active' && (
-        <Section title="Account status">
+        <Section title={t('users.sectionAccountStatus')}>
           {status === 'suspended' && (
             <>
               <Field
-                label="Suspended"
-                value={tsToDate(d.suspended?.suspendedAt)}
+                label={t('users.fieldSuspended')}
+                value={fmt(tsToDate(d.suspended?.suspendedAt), t)}
               />
-              <Field label="Reason" value={d.suspended?.reason} wide />
+              <Field label={t('users.fieldReason')} value={fmt(d.suspended?.reason, t)} wide />
             </>
           )}
           {status === 'archived' && (
             <>
-              <Field label="Archived" value={tsToDate(d.deletedAt)} />
-              <Field label="Reason" value={d.deletionReason} wide />
+              <Field label={t('users.fieldArchived')} value={fmt(tsToDate(d.deletedAt), t)} />
+              <Field label={t('users.fieldReason')} value={fmt(d.deletionReason, t)} wide />
             </>
           )}
         </Section>
@@ -265,13 +277,13 @@ export default async function UserDetailPage({
       {d.managedBy && (
         <section className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
           <p className="text-foreground">
-            This account is operated on the partner&apos;s behalf by an admin.
+            {t('users.managedAccountInfo')}
           </p>
           <Link
             href={`/managed/${uid}/operate`}
             className="mt-1 inline-block font-medium text-primary hover:underline"
           >
-            Open in Active Management →
+            {t('users.openActiveManagement')}
           </Link>
         </section>
       )}
@@ -279,13 +291,14 @@ export default async function UserDetailPage({
       {/* Raw documents — guarantees nothing is hidden from the admin. */}
       <details className="rounded-lg border border-border bg-surface">
         <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-foreground">
-          Raw documents
+          {t('users.rawDocuments')}
         </summary>
         <div className="space-y-4 border-t border-border p-5">
-          <RawBlock title={`users/${uid}`} data={d} />
+          <RawBlock title={`users/${uid}`} data={d} docNotExist={t('users.docNotExist')} />
           <RawBlock
             title={`userProfiles/${uid}`}
             data={profileSnap.exists ? profile : null}
+            docNotExist={t('users.docNotExist')}
           />
         </div>
       </details>
@@ -338,7 +351,7 @@ function Field({
           mono ? 'font-mono text-xs' : ''
         }`}
       >
-        {fmt(value)}
+        {String(value ?? '—')}
       </dd>
     </div>
   );
@@ -370,9 +383,11 @@ function Badge({
 function RawBlock({
   title,
   data,
+  docNotExist,
 }: {
   title: string;
   data: Record<string, unknown> | null;
+  docNotExist: string;
 }) {
   return (
     <div>
@@ -383,7 +398,7 @@ function RawBlock({
         </pre>
       ) : (
         <p className="text-xs italic text-muted-foreground">
-          (document does not exist)
+          {docNotExist}
         </p>
       )}
     </div>

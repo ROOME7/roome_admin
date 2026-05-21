@@ -6,8 +6,10 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useT } from '@/i18n/client';
 
 export function ManagedSearchInput({ initial }: { initial: string }) {
+  const t = useT();
   const router = useRouter();
   const params = useSearchParams();
   const [value, setValue] = useState(initial);
@@ -52,7 +54,7 @@ export function ManagedSearchInput({ initial }: { initial: string }) {
         type="search"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Search email, VAT, company…"
+        placeholder={t('managed.searchPlaceholder')}
         autoComplete="off"
         className="block w-full rounded-md border border-input bg-surface py-1.5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
       />

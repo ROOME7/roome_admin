@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
 import { adminAuth } from '@/lib/firebase-client';
+import { useT } from '@/i18n/client';
 
 function GearIcon() {
   return (
@@ -76,6 +77,7 @@ type UserMenuProps = {
 };
 
 export default function UserMenu({ user }: UserMenuProps) {
+  const t = useT();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -130,7 +132,7 @@ export default function UserMenu({ user }: UserMenuProps) {
             className="flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-secondary"
           >
             <GearIcon />
-            Settings
+            {t('nav.settings')}
           </Link>
           <div className="my-1 h-px bg-border" />
           <button
@@ -141,7 +143,7 @@ export default function UserMenu({ user }: UserMenuProps) {
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
             <SignOutIcon />
-            {signingOut ? 'Signing out…' : 'Sign out'}
+            {signingOut ? t('nav.signingOut') : t('nav.signOut')}
           </button>
         </div>
       )}
@@ -164,7 +166,9 @@ export default function UserMenu({ user }: UserMenuProps) {
           <span className="block truncate text-sm font-medium text-foreground">
             {user.email ?? 'admin'}
           </span>
-          <span className="block truncate text-xs text-muted-foreground">Admin</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {t('nav.adminRole')}
+          </span>
         </span>
         <span className="shrink-0">
           <ChevronIcon />

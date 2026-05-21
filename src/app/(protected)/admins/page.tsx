@@ -18,6 +18,7 @@ import { serverAuth, serverDb } from '@/lib/firebase-admin';
 import { requireAdminSession } from '@/lib/auth';
 import { GrantAdminForm } from './_components/grant-admin-form';
 import { RevokeAdminButton } from './_components/revoke-admin-button';
+import { getT } from '@/i18n/server';
 
 interface AdminUser {
   uid: string;
@@ -115,7 +116,8 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
 export default async function AdminsPage() {
   const adminSession = await requireAdminSession();
 
-  const [admins, roleChanges] = await Promise.all([
+  const [t, admins, roleChanges] = await Promise.all([
+    getT(),
     loadAdmins(),
     loadRoleChanges(),
   ]);
@@ -125,12 +127,12 @@ export default async function AdminsPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Admins
+            {t('admins.title')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Team members with the <code className="rounded bg-muted px-1 py-0.5 text-xs">admin</code>{' '}
-            custom claim. Grant by email; the target user must already have a
-            Firebase Auth account.
+            {t('admins.subtitlePre')}{' '}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">admin</code>{' '}
+            {t('admins.subtitlePost')}
           </p>
         </div>
         <GrantAdminForm />
@@ -138,15 +140,12 @@ export default async function AdminsPage() {
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Current admins · {admins.length}
+          {t('admins.currentAdmins', { count: admins.length })}
         </h2>
         <ul className="mt-3 space-y-2">
           {admins.length === 0 && (
             <li className="rounded-lg border border-dashed border-border bg-surface p-6 text-sm text-muted-foreground">
-              No admins on record. (You probably wouldn&apos;t be reading this if
-              there were truly zero — your own admin status reads from the same
-              claim. If this list is empty there may be a custom-claims sync
-              issue.)
+              {t('admins.noAdmins')}
             </li>
           )}
           {admins.map((a) => {
@@ -156,17 +155,17 @@ export default async function AdminsPage() {
                 <article className="flex items-center gap-4 rounded-lg border border-border bg-surface p-4">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-foreground">
-                      {a.email ?? '(no email)'}
+                      {a.email ?? t('admins.noEmail')}
                       {isSelf && (
                         <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          You
+                          {t('admins.you')}
                         </span>
                       )}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {a.displayName ?? '—'}
                       {a.createdAt && (
-                        <span> · joined {dateFormatter.format(a.createdAt)}</span>
+                        <span> {t('admins.joinedOn', { date: dateFormatter.format(a.createdAt) })}</span>
                       )}
                     </p>
                     <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
@@ -188,12 +187,12 @@ export default async function AdminsPage() {
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Recent role changes · {roleChanges.length}
+          {t('admins.recentRoleChanges', { count: roleChanges.length })}
         </h2>
         <ul className="mt-3 space-y-2">
           {roleChanges.length === 0 && (
             <li className="rounded-lg border border-dashed border-border bg-surface p-6 text-sm text-muted-foreground">
-              No grants or revokes recorded yet.
+              {t('admins.noRoleChanges')}
             </li>
           )}
           {roleChanges.map((r) => (
@@ -217,7 +216,7 @@ export default async function AdminsPage() {
                   {r.targetEmail ?? r.targetUid}
                 </p>
                 <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                  by {r.byUid ?? '(system bootstrap)'}
+                  {r.byUid ? t('admins.byUid', { uid: r.byUid }) : t('admins.bySystem')}
                 </p>
               </div>
               <span className="shrink-0 text-xs text-muted-foreground">

@@ -15,6 +15,7 @@ import {
   formatAdminAction,
   type AdminActionEntry,
 } from '@/lib/audit-format';
+import { useT } from '@/i18n/client';
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -24,6 +25,7 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
 });
 
 export function ActivityButton({ account }: { account: ManagedAccount }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -32,7 +34,7 @@ export function ActivityButton({ account }: { account: ManagedAccount }) {
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Activity
+        {t('managed.activityButton')}
       </button>
       {open && <ActivityDialog account={account} onClose={() => setOpen(false)} />}
     </>
@@ -46,6 +48,7 @@ function ActivityDialog({
   account: ManagedAccount;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<AdminActionEntry[] | null>(null);
@@ -69,20 +72,19 @@ function ActivityDialog({
       <div className="w-full max-w-2xl rounded-xl border border-border bg-surface p-6 shadow-xl">
         <header className="flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold text-foreground">
-            Activity · {heading}
+            {t('managed.activityDialogTitle', { name: heading })}
           </h2>
           <span className="font-mono text-[10px] text-muted-foreground">
             {account.uid.slice(0, 12)}…
           </span>
         </header>
         <p className="mt-1 text-sm text-muted-foreground">
-          Last 50 admin actions targeting this account. Same source as the
-          dashboard recent-activity feed.
+          {t('managed.activityDialogSubtitle')}
         </p>
 
         <div className="mt-5 max-h-[60vh] overflow-y-auto rounded-md border border-border">
           {pending && (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+            <p className="p-6 text-sm text-muted-foreground">{t('common.loading')}</p>
           )}
           {error && (
             <p
@@ -94,7 +96,7 @@ function ActivityDialog({
           )}
           {!pending && !error && entries && entries.length === 0 && (
             <p className="p-6 text-sm text-muted-foreground">
-              No admin actions recorded for this account yet.
+              {t('managed.activityEmpty')}
             </p>
           )}
           {!pending && entries && entries.length > 0 && (
@@ -112,7 +114,7 @@ function ActivityDialog({
             onClick={onClose}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
           >
-            Close
+            {t('common.close')}
           </button>
         </div>
       </div>
@@ -121,7 +123,8 @@ function ActivityDialog({
 }
 
 function Row({ entry }: { entry: AdminActionEntry }) {
-  const formatted = formatAdminAction(entry);
+  const t = useT();
+  const formatted = formatAdminAction(entry, t);
   const toneClass = {
     neutral: 'bg-secondary text-muted-foreground',
     positive: 'bg-primary/10 text-primary',
@@ -144,7 +147,7 @@ function Row({ entry }: { entry: AdminActionEntry }) {
           </p>
         )}
         <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-          by {entry.adminUid.slice(0, 8)}…
+          {t('managed.activityBy', { uid: `${entry.adminUid.slice(0, 8)}…` })}
         </p>
       </div>
       <span className="shrink-0 text-xs text-muted-foreground">

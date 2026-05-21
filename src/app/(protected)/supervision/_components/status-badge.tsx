@@ -5,6 +5,7 @@
 // reviewed". Approved → success green, rejected → destructive red.
 
 import type { B2bStatus } from '../_lib/types';
+import type { TFunc } from '@/i18n/t';
 
 const STYLES: Record<B2bStatus, string> = {
   pending: 'bg-secondary text-foreground ring-border',
@@ -12,13 +13,13 @@ const STYLES: Record<B2bStatus, string> = {
   rejected: 'bg-destructive/10 text-destructive ring-destructive/20',
 };
 
-const LABELS: Record<B2bStatus, string> = {
-  pending: 'Pending',
-  approved: 'Approved',
-  rejected: 'Rejected',
-};
+export function StatusBadge({ status, t }: { status: B2bStatus; t: TFunc }) {
+  const LABELS: Record<B2bStatus, string> = {
+    pending: t('common.statusPending'),
+    approved: t('common.statusApproved'),
+    rejected: t('common.statusRejected'),
+  };
 
-export function StatusBadge({ status }: { status: B2bStatus }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${STYLES[status]}`}

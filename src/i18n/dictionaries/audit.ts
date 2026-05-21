@@ -1,0 +1,66 @@
+// Admin activity-feed strings — drives formatAdminAction() in
+// lib/audit-format.ts, rendered on the dashboard and in the
+// per-account activity dialog.
+
+const it = {
+  editProfile: 'Profilo modificato',
+  setNote: 'Note amministrative aggiornate',
+  setTags: 'Tag aggiornati',
+  suspend: 'Account sospeso',
+  reactivate: 'Account riattivato',
+  archive: 'Account archiviato',
+  reclaim: 'Gestione ripresa',
+  waiverGranted: 'Esenzione abbonamento concessa',
+  waiverRevoked: 'Esenzione abbonamento revocata',
+  refund: 'Fattura abbonamento rimborsata',
+  connectOnboarding: 'Link di onboarding Connect inviato',
+  grantAdmin: 'Ruolo amministratore concesso',
+  revokeAdmin: 'Ruolo amministratore revocato',
+  sendMessageAs: 'Messaggio in chat inviato come partner',
+  editListingAs: 'Annuncio modificato come partner',
+  acceptApplicationAs: 'Candidatura accettata come partner',
+  declineApplicationAs: 'Candidatura rifiutata come partner',
+  publishListingAs: 'Annuncio pubblicato come partner',
+  uploadPhotoAs: 'Foto annuncio caricata come partner',
+  partnerNotification: 'Notifica al partner inviata',
+  // Detail fragments
+  charsCount: '{count} caratteri',
+  listingsRestored: '{count} annunci ripristinati',
+  tagsCleared: '(rimossi)',
+  chatRef: 'chat {id}…',
+  contractRef: 'contratto {id}…',
+  propertyRef: 'immobile {id}…',
+  roomsBeds: '{rooms} stanze, {beds} posti letto',
+};
+
+const en: Record<keyof typeof it, string> = {
+  editProfile: 'Edited profile',
+  setNote: 'Updated admin notes',
+  setTags: 'Updated tags',
+  suspend: 'Suspended account',
+  reactivate: 'Reactivated account',
+  archive: 'Archived account',
+  reclaim: 'Reclaimed management',
+  waiverGranted: 'Granted subscription waiver',
+  waiverRevoked: 'Revoked subscription waiver',
+  refund: 'Refunded subscription invoice',
+  connectOnboarding: 'Sent Connect onboarding link',
+  grantAdmin: 'Granted admin role',
+  revokeAdmin: 'Revoked admin role',
+  sendMessageAs: 'Sent chat message as partner',
+  editListingAs: 'Edited listing as partner',
+  acceptApplicationAs: 'Accepted application as partner',
+  declineApplicationAs: 'Declined application as partner',
+  publishListingAs: 'Published listing as partner',
+  uploadPhotoAs: 'Uploaded listing photo as partner',
+  partnerNotification: 'Sent partner notification',
+  charsCount: '{count} chars',
+  listingsRestored: '{count} listing(s) restored',
+  tagsCleared: '(cleared)',
+  chatRef: 'chat {id}…',
+  contractRef: 'contract {id}…',
+  propertyRef: 'property {id}…',
+  roomsBeds: '{rooms} room(s), {beds} bed(s)',
+};
+
+export const audit = { it, en };

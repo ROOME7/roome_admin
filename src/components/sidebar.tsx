@@ -7,6 +7,7 @@
 
 import SidebarLink from './sidebar-link';
 import UserMenu from './user-menu';
+import { getT } from '@/i18n/server';
 
 // Single inline SVG <Icon> wrapper so we can pass any 24x24 path without a
 // dependency on heroicons/lucide. Outline-style strokes match the visual
@@ -113,7 +114,8 @@ type SidebarProps = {
   };
 };
 
-export default function Sidebar({ user }: SidebarProps) {
+export default async function Sidebar({ user }: SidebarProps) {
+  const t = await getT();
   return (
     <aside className="fixed inset-y-0 left-0 flex w-64 flex-col border-r border-border bg-surface">
       {/* Logo header */}
@@ -124,28 +126,37 @@ export default function Sidebar({ user }: SidebarProps) {
       {/* Nav */}
       <nav
         className="flex-1 space-y-1 overflow-y-auto px-3 py-4"
-        aria-label="Primary"
+        aria-label={t('nav.primaryNav')}
       >
-        <SidebarLink href="/" label="Dashboard" icon={<DashboardIcon />} exact />
+        <SidebarLink
+          href="/"
+          label={t('nav.dashboard')}
+          icon={<DashboardIcon />}
+          exact
+        />
         <SidebarLink
           href="/finances"
-          label="Finances"
+          label={t('nav.finances')}
           icon={<FinancesIcon />}
         />
-        <SidebarLink href="/users" label="Users" icon={<UsersIcon />} />
+        <SidebarLink
+          href="/users"
+          label={t('nav.users')}
+          icon={<UsersIcon />}
+        />
         <SidebarLink
           href="/supervision"
-          label="Supervision & Approval"
+          label={t('nav.supervision')}
           icon={<SupervisionIcon />}
         />
         <SidebarLink
           href="/managed"
-          label="Active Management"
+          label={t('nav.managed')}
           icon={<ManagedIcon />}
         />
         <SidebarLink
           href="/admins"
-          label="Admins"
+          label={t('nav.admins')}
           icon={<AdminsIcon />}
         />
       </nav>

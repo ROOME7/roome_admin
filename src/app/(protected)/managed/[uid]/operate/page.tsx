@@ -16,6 +16,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Timestamp } from 'firebase-admin/firestore';
 import { serverDb } from '@/lib/firebase-admin';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 import type {
   OperateActiveTenant,
   OperateApplicationSummary,
@@ -281,6 +283,7 @@ export default async function OperatePage({
   const { uid } = await params;
   const sp = await searchParams;
   const tab = asTab(sp.tab);
+  const t = await getT();
 
   const partner = await loadPartner(uid);
   if (!partner) notFound();
@@ -335,22 +338,24 @@ export default async function OperatePage({
       <header className="space-y-1">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <Link href="/managed" className="hover:text-foreground">
-            ← Active Management
+            {t('operate.backToManaged')}
           </Link>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Operate on behalf of <span className="text-primary">{partner.displayName}</span>
+          {t('operate.pageTitle', { name: partner.displayName }).split(partner.displayName)[0]}
+          <span className="text-primary">{partner.displayName}</span>
+          {t('operate.pageTitle', { name: partner.displayName }).split(partner.displayName)[1]}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Every action you take here is recorded with{' '}
+          {t('operate.pageSubtitle', { field: '_impersonatedByAdminUid' }).split('_impersonatedByAdminUid')[0]}
           <code className="rounded bg-muted px-1 py-0.5 text-xs">_impersonatedByAdminUid</code>
-          {' '}stamped on the affected doc. No partner notification is sent.
+          {t('operate.pageSubtitle', { field: '_impersonatedByAdminUid' }).split('_impersonatedByAdminUid')[1]}
         </p>
       </header>
 
-      {lockedReason && <LockedBanner reason={lockedReason} />}
+      {lockedReason && <LockedBanner reason={lockedReason} t={t} />}
 
-      <TabsRow uid={uid} active={tab} />
+      <TabsRow uid={uid} active={tab} t={t} />
 
       {tab === 'chats' && (
         <ChatsTab uid={uid} chats={chats} disabled={Boolean(lockedReason)} />
@@ -372,31 +377,31 @@ export default async function OperatePage({
           disabled={Boolean(lockedReason)}
         />
       )}
-      {tab === 'stripe' && <StripeTab snapshot={stripe} />}
+      {tab === 'stripe' && <StripeTab snapshot={stripe} t={t} />}
     </div>
   );
 }
 
-function TabsRow({ uid, active }: { uid: string; active: OperateTab }) {
-  const tabs: { value: OperateTab; label: string }[] = [
-    { value: 'chats', label: 'Chats' },
-    { value: 'listings', label: 'Listings' },
-    { value: 'applications', label: 'Applications' },
-    { value: 'tenants', label: 'Tenants' },
-    { value: 'stripe', label: 'Stripe' },
+function TabsRow({ uid, active, t }: { uid: string; active: OperateTab; t: TFunc }) {
+  const tabs: { value: OperateTab; labelKey: string }[] = [
+    { value: 'chats', labelKey: 'operate.tabChats' },
+    { value: 'listings', labelKey: 'operate.tabListings' },
+    { value: 'applications', labelKey: 'operate.tabApplications' },
+    { value: 'tenants', labelKey: 'operate.tabTenants' },
+    { value: 'stripe', labelKey: 'operate.tabStripe' },
   ];
   return (
     <div
       role="tablist"
-      aria-label="Operate-as tabs"
+      aria-label={t('operate.tabsAriaLabel')}
       className="inline-flex rounded-lg border border-border bg-surface p-1"
     >
-      {tabs.map((t) => {
-        const isActive = t.value === active;
+      {tabs.map((tab) => {
+        const isActive = tab.value === active;
         return (
           <Link
-            key={t.value}
-            href={`/managed/${uid}/operate?tab=${t.value}`}
+            key={tab.value}
+            href={`/managed/${uid}/operate?tab=${tab.value}`}
             role="tab"
             aria-selected={isActive}
             scroll={false}
@@ -406,7 +411,7 @@ function TabsRow({ uid, active }: { uid: string; active: OperateTab }) {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {t.label}
+            {t(tab.labelKey)}
           </Link>
         );
       })}
@@ -416,25 +421,27 @@ function TabsRow({ uid, active }: { uid: string; active: OperateTab }) {
 
 function LockedBanner({
   reason,
+  t,
 }: {
   reason: 'not_managed' | 'suspended' | 'archived';
+  t: TFunc;
 }) {
-  const messages: Record<typeof reason, { tone: string; text: string }> = {
+  const messages: Record<typeof reason, { tone: string; key: string }> = {
     not_managed: {
       tone: 'bg-muted/50 text-muted-foreground',
-      text: 'This account is not currently managed. Operate actions are disabled. Use Reclaim or Create instead.',
+      key: 'operate.lockedNotManaged',
     },
     suspended: {
       tone: 'bg-amber-500/10 text-amber-700',
-      text: 'This account is suspended. Operate actions are disabled until you reactivate it.',
+      key: 'operate.lockedSuspended',
     },
     archived: {
       tone: 'bg-destructive/10 text-destructive',
-      text: 'This account is archived. Operate actions are disabled.',
+      key: 'operate.lockedArchived',
     },
   };
   const m = messages[reason];
   return (
-    <p className={`rounded-md px-4 py-2 text-sm ${m.tone}`}>{m.text}</p>
+    <p className={`rounded-md px-4 py-2 text-sm ${m.tone}`}>{t(m.key)}</p>
   );
 }

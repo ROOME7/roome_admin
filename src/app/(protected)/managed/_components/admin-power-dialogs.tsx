@@ -20,12 +20,14 @@ import {
 } from '../actions';
 import type { ManagedAccount } from '../_lib/types';
 import { Field, InputStyles, Overlay } from './dialog-primitives';
+import { useT } from '@/i18n/client';
 
 // ---------------------------------------------------------------------------
 // Waiver
 // ---------------------------------------------------------------------------
 
 export function WaiverButton({ account }: { account: ManagedAccount }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -34,7 +36,7 @@ export function WaiverButton({ account }: { account: ManagedAccount }) {
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Waiver
+        {t('managed.waiverButton')}
       </button>
       {open && <WaiverDialog account={account} onClose={() => setOpen(false)} />}
     </>
@@ -48,6 +50,7 @@ function WaiverDialog({
   account: ManagedAccount;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(account.subscriptionWaiverActive);
@@ -68,11 +71,9 @@ function WaiverDialog({
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Subscription waiver</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('managed.waiverDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Bypasses the €150/yr owner-subscription gate independently of
-          managed/handed-over state. Use for strategic partners who keep their
-          account post-handover but shouldn&apos;t be charged.
+          {t('managed.waiverDialogSubtitle')}
         </p>
 
         <div className="mt-5 space-y-4">
@@ -83,10 +84,10 @@ function WaiverDialog({
               onChange={(e) => setActive(e.target.checked)}
               disabled={pending}
             />
-            Waiver active
+            {t('managed.waiverActive_label')}
           </label>
           <Field
-            label="Reason"
+            label={t('managed.waiverReasonLabel')}
             required={active}
             hint={`${reason.length} / 1000`}
           >
@@ -97,7 +98,7 @@ function WaiverDialog({
               onChange={(e) => setReason(e.target.value)}
               disabled={pending || !active}
               className="input"
-              placeholder="Why does this partner get a waiver?"
+              placeholder={t('managed.waiverReasonPlaceholder')}
             />
           </Field>
         </div>
@@ -118,7 +119,7 @@ function WaiverDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -128,7 +129,7 @@ function WaiverDialog({
             }
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Saving…' : 'Save'}
+            {pending ? t('common.saving') : t('common.save')}
           </button>
         </div>
 
@@ -147,6 +148,7 @@ export function ConnectOnboardingButton({
 }: {
   account: ManagedAccount;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -155,7 +157,7 @@ export function ConnectOnboardingButton({
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Connect
+        {t('managed.connectButton')}
       </button>
       {open && (
         <ConnectOnboardingDialog account={account} onClose={() => setOpen(false)} />
@@ -171,6 +173,7 @@ function ConnectOnboardingDialog({
   account: ManagedAccount;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ onboardingUrl: string; accountId: string } | null>(
@@ -197,19 +200,16 @@ function ConnectOnboardingDialog({
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Stripe Connect onboarding</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('managed.connectDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Generates a fresh Stripe Account Link for <strong>{heading}</strong>{' '}
-          and pushes it to them via FCM + notifications doc. The link is
-          single-use and short-lived; resend any time. Creating an Express
-          account is idempotent.
+          {t('managed.connectDialogSubtitle', { name: heading })}
         </p>
 
         {!result && (
           <p className="mt-4 text-xs text-muted-foreground">
-            Existing account ID:{' '}
+            {t('managed.connectExistingAccountId')}{' '}
             <span className="font-mono">
-              {account.stripeConnectAccountId ?? '(none yet — will create)'}
+              {account.stripeConnectAccountId ?? t('managed.connectNoneYet')}
             </span>
           </p>
         )}
@@ -217,10 +217,10 @@ function ConnectOnboardingDialog({
         {result && (
           <div className="mt-4 space-y-3">
             <p className="rounded-md bg-primary/10 px-3 py-2 text-sm text-primary">
-              Onboarding link generated and pushed to the partner.
+              {t('managed.connectSuccessMessage')}
             </p>
             <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
-              <p className="font-medium text-foreground">Direct URL (also share manually if needed):</p>
+              <p className="font-medium text-foreground">{t('managed.connectDirectUrlLabel')}</p>
               <a
                 href={result.onboardingUrl}
                 target="_blank"
@@ -230,7 +230,7 @@ function ConnectOnboardingDialog({
                 {result.onboardingUrl}
               </a>
               <p className="mt-2 font-mono text-muted-foreground">
-                acct: {result.accountId}
+                {t('managed.connectAcctLabel')} {result.accountId}
               </p>
             </div>
           </div>
@@ -252,7 +252,7 @@ function ConnectOnboardingDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {result ? 'Close' : 'Cancel'}
+            {result ? t('common.close') : t('common.cancel')}
           </button>
           {!result && (
             <button
@@ -261,7 +261,7 @@ function ConnectOnboardingDialog({
               disabled={pending}
               className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {pending ? 'Generating…' : 'Generate link & notify'}
+              {pending ? t('managed.connectGenerating') : t('managed.connectGenerate')}
             </button>
           )}
         </div>
@@ -275,6 +275,7 @@ function ConnectOnboardingDialog({
 // ---------------------------------------------------------------------------
 
 export function NotifyButton({ account }: { account: ManagedAccount }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -283,7 +284,7 @@ export function NotifyButton({ account }: { account: ManagedAccount }) {
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Notify
+        {t('managed.notifyButton')}
       </button>
       {open && <NotifyDialog account={account} onClose={() => setOpen(false)} />}
     </>
@@ -297,6 +298,7 @@ function NotifyDialog({
   account: ManagedAccount;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -324,16 +326,14 @@ function NotifyDialog({
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Send partner notification</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('managed.notifyDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Writes a doc to <code className="rounded bg-muted px-1 py-0.5 text-xs">notifications/</code>
-          {' '}and best-effort delivers a push via FCM. Use sparingly — partners
-          have FCM-quieting expectations.
+          {t('managed.notifyDialogSubtitle')}
         </p>
 
         {!result && (
           <div className="mt-5 space-y-4">
-            <Field label="Title" required hint={`${title.length} / 60`}>
+            <Field label={t('managed.notifyTitleLabel')} required hint={t('managed.notifyTitleHint', { count: title.length })}>
               <input
                 type="text"
                 maxLength={60}
@@ -344,7 +344,7 @@ function NotifyDialog({
                 placeholder="e.g. Verifica IBAN"
               />
             </Field>
-            <Field label="Body" required hint={`${body.length} / 240`}>
+            <Field label={t('managed.notifyBodyLabel')} required hint={t('managed.notifyBodyHint', { count: body.length })}>
               <textarea
                 rows={3}
                 maxLength={240}
@@ -352,10 +352,10 @@ function NotifyDialog({
                 onChange={(e) => setBody(e.target.value)}
                 disabled={pending}
                 className="input"
-                placeholder="Short message — under 240 chars."
+                placeholder={t('managed.notifyBodyPlaceholder')}
               />
             </Field>
-            <Field label="Deep link" hint="Optional in-app URL">
+            <Field label={t('managed.notifyDeepLinkLabel')} hint={t('managed.notifyDeepLinkHint')}>
               <input
                 type="text"
                 maxLength={500}
@@ -378,8 +378,8 @@ function NotifyDialog({
             }`}
           >
             {result.delivered
-              ? 'Pushed to the partner’s device.'
-              : 'Notification doc written, but no FCM token on file — partner will see it next time they sign in.'}
+              ? t('managed.notifySuccessDelivered')
+              : t('managed.notifySuccessNoToken')}
           </p>
         )}
 
@@ -399,7 +399,7 @@ function NotifyDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {result ? 'Close' : 'Cancel'}
+            {result ? t('common.close') : t('common.cancel')}
           </button>
           {!result && (
             <button
@@ -410,7 +410,7 @@ function NotifyDialog({
               }
               className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {pending ? 'Sending…' : 'Send'}
+              {pending ? t('managed.notifySending') : t('managed.notifySend')}
             </button>
           )}
         </div>
@@ -426,6 +426,7 @@ function NotifyDialog({
 // ---------------------------------------------------------------------------
 
 export function RefundsButton({ account }: { account: ManagedAccount }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -434,7 +435,7 @@ export function RefundsButton({ account }: { account: ManagedAccount }) {
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Refunds
+        {t('managed.refundsButton')}
       </button>
       {open && <RefundsDialog account={account} onClose={() => setOpen(false)} />}
     </>
@@ -448,6 +449,7 @@ function RefundsDialog({
   account: ManagedAccount;
   onClose: () => void;
 }) {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<SubInvoiceSummary[]>([]);
@@ -471,15 +473,13 @@ function RefundsDialog({
   return (
     <Overlay onClose={onClose}>
       <div className="w-full max-w-2xl rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Owner subscription refunds</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('managed.refundsDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Lists this partner&apos;s €150/yr invoices from Stripe. Refund partially
-          or in full per invoice. Rent-payment refunds are NOT shown here — those
-          happen on the partner&apos;s Connected Account.
+          {t('managed.refundsDialogSubtitle')}
         </p>
 
         <div className="mt-5 space-y-3">
-          {loading && <p className="text-sm text-muted-foreground">Loading invoices…</p>}
+          {loading && <p className="text-sm text-muted-foreground">{t('managed.refundsLoadingInvoices')}</p>}
           {loadError && (
             <p
               role="alert"
@@ -490,8 +490,7 @@ function RefundsDialog({
           )}
           {!loading && !loadError && invoices.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No owner-subscription invoices found. (Partner may not have a
-              Stripe customer record, or hasn&apos;t paid the subscription yet.)
+              {t('managed.refundsNoInvoices')}
             </p>
           )}
           {invoices.map((inv) => (
@@ -525,7 +524,7 @@ function RefundsDialog({
             onClick={onClose}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
           >
-            Close
+            {t('common.close')}
           </button>
         </div>
       </div>
@@ -542,6 +541,7 @@ function InvoiceRow({
   invoice: SubInvoiceSummary;
   onRefunded: (amountCents: number) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const euros = (cents: number) => (cents / 100).toFixed(2);
   const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -562,10 +562,10 @@ function InvoiceRow({
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {invoice.created ? dateFormatter.format(new Date(invoice.created * 1000)) : '—'}
-            {' · '}€{euros(invoice.amountPaid)} paid
+            {' · '}{t('managed.refundPaid', { amount: euros(invoice.amountPaid) })}
             {invoice.refundedSoFar > 0 && (
               <span className="text-destructive">
-                {' · '}€{euros(invoice.refundedSoFar)} refunded
+                {' · '}{t('managed.refundRefunded', { amount: euros(invoice.refundedSoFar) })}
               </span>
             )}
           </p>
@@ -576,7 +576,7 @@ function InvoiceRow({
           disabled={invoice.amountRemaining === 0}
           className="shrink-0 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Refund
+          {t('managed.refundButton')}
         </button>
       </div>
 
@@ -606,6 +606,7 @@ function RefundInvoiceDialog({
   onClose: () => void;
   onSuccess: (amountCents: number) => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'full' | 'partial'>('full');
@@ -626,7 +627,7 @@ function RefundInvoiceDialog({
         (amount as number) <= 0 ||
         (amount as number) > invoice.amountRemaining
       ) {
-        setError(`Partial amount must be 0.01..${remainingEur} EUR.`);
+        setError(t('managed.refundPartialError', { max: remainingEur }));
         return;
       }
     }
@@ -643,10 +644,12 @@ function RefundInvoiceDialog({
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-md rounded-xl border border-destructive/30 bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-destructive">Refund invoice</h2>
+        <h2 className="text-lg font-semibold text-destructive">{t('managed.refundInvoiceDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Invoice <span className="font-mono">{invoice.number ?? invoice.invoiceId.slice(0, 12)}</span>.
-          Up to <strong>€{remainingEur}</strong> refundable.
+          {t('managed.refundInvoiceSubtitle', {
+            number: invoice.number ?? invoice.invoiceId.slice(0, 12),
+            max: remainingEur,
+          })}
         </p>
 
         <div className="mt-5 space-y-4">
@@ -659,7 +662,7 @@ function RefundInvoiceDialog({
                 onChange={() => setMode('full')}
                 disabled={pending}
               />
-              Refund full remaining (€{remainingEur})
+              {t('managed.refundFullLabel', { amount: remainingEur })}
             </label>
             <label className="inline-flex items-center gap-2">
               <input
@@ -669,11 +672,11 @@ function RefundInvoiceDialog({
                 onChange={() => setMode('partial')}
                 disabled={pending}
               />
-              Refund partial amount
+              {t('managed.refundPartialLabel')}
             </label>
           </fieldset>
           {mode === 'partial' && (
-            <Field label="Amount (EUR)" required>
+            <Field label={t('managed.refundAmountLabel')} required>
               <input
                 type="number"
                 step="0.01"
@@ -686,7 +689,7 @@ function RefundInvoiceDialog({
               />
             </Field>
           )}
-          <Field label="Reason" required hint={`${reason.length} / 1000`}>
+          <Field label={t('managed.refundReasonLabel')} required hint={`${reason.length} / 1000`}>
             <textarea
               rows={3}
               maxLength={1000}
@@ -694,7 +697,7 @@ function RefundInvoiceDialog({
               onChange={(e) => setReason(e.target.value)}
               disabled={pending}
               className="input"
-              placeholder="Internal note — visible only to admins."
+              placeholder={t('managed.refundReasonPlaceholder')}
             />
           </Field>
         </div>
@@ -715,7 +718,7 @@ function RefundInvoiceDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -723,7 +726,7 @@ function RefundInvoiceDialog({
             disabled={pending || reason.trim().length < 3}
             className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Refunding…' : 'Refund'}
+            {pending ? t('managed.refundSubmitting') : t('managed.refundSubmit')}
           </button>
         </div>
 

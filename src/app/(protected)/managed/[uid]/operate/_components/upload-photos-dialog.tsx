@@ -8,6 +8,7 @@
 import { useState, useTransition } from 'react';
 import { uploadListingPhotoAs } from '../actions';
 import { InputStyles, Overlay } from '../../../_components/dialog-primitives';
+import { useT } from '@/i18n/client';
 
 interface Props {
   uid: string;
@@ -24,6 +25,7 @@ interface FileState {
 }
 
 export function UploadPhotosButton({ uid, propertyId, disabled }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -33,7 +35,7 @@ export function UploadPhotosButton({ uid, propertyId, disabled }: Props) {
         disabled={disabled}
         className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Photos
+        {t('operate.uploadPhotosButton')}
       </button>
       {open && (
         <UploadPhotosDialog
@@ -55,6 +57,7 @@ function UploadPhotosDialog({
   propertyId: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [files, setFiles] = useState<FileState[]>([]);
 
@@ -129,16 +132,17 @@ function UploadPhotosDialog({
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Upload photos as partner</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('operate.uploadPhotosTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Uploads to <code className="rounded bg-muted px-1 py-0.5 text-xs">properties/{propertyId.slice(0, 8)}…/photos/</code>
-          {' '}and appends each URL to <code className="rounded bg-muted px-1 py-0.5 text-xs">photoUrls[]</code>.
-          Max 8 MB per file. JPEG / PNG / WebP / HEIC.
+          {t('operate.uploadPhotosDesc', {
+            path: `properties/${propertyId.slice(0, 8)}…/photos/`,
+            field: 'photoUrls[]',
+          })}
         </p>
 
         <div className="mt-5">
           <label className="block">
-            <span className="text-sm font-medium text-foreground">Pick files</span>
+            <span className="text-sm font-medium text-foreground">{t('operate.uploadPickFilesLabel')}</span>
             <input
               type="file"
               multiple
@@ -184,7 +188,7 @@ function UploadPhotosDialog({
                     disabled={pending}
                     className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
                   >
-                    Remove
+                    {t('operate.uploadRemoveButton')}
                   </button>
                 )}
               </li>
@@ -199,7 +203,7 @@ function UploadPhotosDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Close
+            {t('common.close')}
           </button>
           <button
             type="button"
@@ -207,7 +211,7 @@ function UploadPhotosDialog({
             disabled={pending || !anyQueued}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Uploading…' : `Upload ${files.filter((f) => f.status === 'queued').length}`}
+            {pending ? t('operate.uploadUploadingButton') : t('operate.uploadUploadButton', { count: String(files.filter((f) => f.status === 'queued').length) })}
           </button>
         </div>
 
@@ -218,16 +222,17 @@ function UploadPhotosDialog({
 }
 
 function FileBadge({ status }: { status: FileState['status'] }) {
-  const map: Record<FileState['status'], { label: string; tone: string }> = {
-    queued: { label: 'Queued', tone: 'bg-muted text-muted-foreground' },
-    uploading: { label: 'Uploading…', tone: 'bg-amber-500/10 text-amber-700' },
-    done: { label: 'Done', tone: 'bg-primary/10 text-primary' },
-    error: { label: 'Error', tone: 'bg-destructive/10 text-destructive' },
+  const t = useT();
+  const map: Record<FileState['status'], { labelKey: string; tone: string }> = {
+    queued: { labelKey: 'operate.uploadBadgeQueued', tone: 'bg-muted text-muted-foreground' },
+    uploading: { labelKey: 'operate.uploadBadgeUploading', tone: 'bg-amber-500/10 text-amber-700' },
+    done: { labelKey: 'operate.uploadBadgeDone', tone: 'bg-primary/10 text-primary' },
+    error: { labelKey: 'operate.uploadBadgeError', tone: 'bg-destructive/10 text-destructive' },
   };
   const m = map[status];
   return (
     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${m.tone}`}>
-      {m.label}
+      {t(m.labelKey)}
     </span>
   );
 }

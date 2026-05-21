@@ -13,6 +13,7 @@ import type {
   StripePaymentIntentSummary,
   StripeSubscriptionSummary,
 } from '../actions';
+import type { TFunc } from '@/i18n/t';
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -40,14 +41,12 @@ function fmtMoney(cents: number, currency: string): string {
   return `${sign}${(cents / 100).toFixed(2)}`;
 }
 
-export function StripeTab({ snapshot }: { snapshot: StripePartnerSnapshot }) {
+export function StripeTab({ snapshot, t }: { snapshot: StripePartnerSnapshot; t: TFunc }) {
   if (!snapshot.hasStripeFootprint) {
     return (
       <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
         <p className="text-sm text-muted-foreground">
-          This partner has no Stripe footprint yet — no customer record and
-          no Connect account. Will appear here after first sub purchase or
-          Connect onboarding.
+          {t('operate.stripeEmpty')}
         </p>
       </section>
     );
@@ -58,26 +57,32 @@ export function StripeTab({ snapshot }: { snapshot: StripePartnerSnapshot }) {
       <CustomerCard
         customer={snapshot.customer}
         error={snapshot.customerError}
+        t={t}
       />
       <SubscriptionCard
         sub={snapshot.subscription}
         error={snapshot.subscriptionError}
+        t={t}
       />
       <ConnectCard
         connect={snapshot.connect}
         error={snapshot.connectError}
+        t={t}
       />
       <InvoicesCard
         invoices={snapshot.invoices}
         error={snapshot.invoicesError}
+        t={t}
       />
       <PaymentsCard
         payments={snapshot.payments}
         error={snapshot.paymentsError}
+        t={t}
       />
       <DisputesCard
         disputes={snapshot.disputes}
         error={snapshot.disputesError}
+        t={t}
       />
     </div>
   );
@@ -93,12 +98,14 @@ function SectionShell({
   error,
   empty,
   children,
+  t,
 }: {
   title: string;
   count?: number;
   error: string | null;
   empty?: string;
   children: React.ReactNode;
+  t: TFunc;
 }) {
   return (
     <article className="rounded-lg border border-border bg-surface">
@@ -115,7 +122,7 @@ function SectionShell({
       <div className="px-5 py-4">
         {error ? (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Stripe error: {error}
+            {t('operate.stripeError', { error })}
           </p>
         ) : count === 0 && empty ? (
           <p className="text-sm text-muted-foreground">{empty}</p>
@@ -230,21 +237,23 @@ function piStatusTone(status: string): 'success' | 'warning' | 'danger' | 'neutr
 function CustomerCard({
   customer,
   error,
+  t,
 }: {
   customer: StripeCustomerSummary | null;
   error: string | null;
+  t: TFunc;
 }) {
   return (
-    <SectionShell title="Customer" error={error} count={customer ? undefined : 0} empty="No Stripe customer on record for this partner.">
+    <SectionShell title={t('operate.stripeCustomerTitle')} error={error} count={customer ? undefined : 0} empty={t('operate.stripeCustomerEmpty')} t={t}>
       {customer && (
         <div className="space-y-3">
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-            <Field label="Customer ID" value={customer.customerId} mono />
-            <Field label="Email" value={customer.email ?? '—'} />
-            <Field label="Name" value={customer.name ?? '—'} />
-            <Field label="Created" value={fmtDate(customer.created)} />
+            <Field label={t('operate.stripeCustomerId')} value={customer.customerId} mono />
+            <Field label={t('operate.stripeCustomerEmail')} value={customer.email ?? '—'} />
+            <Field label={t('operate.stripeCustomerName')} value={customer.name ?? '—'} />
+            <Field label={t('operate.stripeCustomerCreated')} value={fmtDate(customer.created)} />
             <Field
-              label="Default payment method"
+              label={t('operate.stripeCustomerDefaultPm')}
               value={customer.defaultPaymentMethodId ?? '—'}
               mono
             />
@@ -255,7 +264,7 @@ function CustomerCard({
             rel="noopener noreferrer"
             className="text-xs text-primary hover:underline"
           >
-            Open in Stripe Dashboard ↗
+            {t('operate.stripeOpenDashboard')}
           </Link>
         </div>
       )}
@@ -270,16 +279,19 @@ function CustomerCard({
 function SubscriptionCard({
   sub,
   error,
+  t,
 }: {
   sub: StripeSubscriptionSummary | null;
   error: string | null;
+  t: TFunc;
 }) {
   return (
     <SectionShell
-      title="Owner subscription"
+      title={t('operate.stripeSubscriptionTitle')}
       error={error}
       count={sub ? undefined : 0}
-      empty="No active or past subscription. Partner hasn't paid the €150/yr."
+      empty={t('operate.stripeSubscriptionEmpty')}
+      t={t}
     >
       {sub && (
         <div className="space-y-3">
@@ -289,24 +301,24 @@ function SubscriptionCard({
               tone={subscriptionStatusTone(sub.status)}
             />
             {sub.cancelAtPeriodEnd && (
-              <StatusPill label="cancels at period end" tone="warning" />
+              <StatusPill label={t('operate.stripeSubCancelsAtEnd')} tone="warning" />
             )}
           </div>
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-            <Field label="Subscription ID" value={sub.subscriptionId} mono />
+            <Field label={t('operate.stripeSubId')} value={sub.subscriptionId} mono />
             <Field
-              label="Amount"
-              value={`${fmtMoney(sub.amountCents, sub.currency)} / period`}
+              label={t('operate.stripeSubAmount')}
+              value={t('operate.stripeSubAmountValue', { amount: fmtMoney(sub.amountCents, sub.currency) })}
             />
-            <Field label="Collection method" value={sub.collectionMethod} />
-            <Field label="Current period start" value={fmtDate(sub.currentPeriodStart)} />
-            <Field label="Current period end" value={fmtDate(sub.currentPeriodEnd)} />
+            <Field label={t('operate.stripeSubCollection')} value={sub.collectionMethod} />
+            <Field label={t('operate.stripeSubPeriodStart')} value={fmtDate(sub.currentPeriodStart)} />
+            <Field label={t('operate.stripeSubPeriodEnd')} value={fmtDate(sub.currentPeriodEnd)} />
             <Field
-              label="Canceled at"
+              label={t('operate.stripeSubCanceledAt')}
               value={sub.canceledAt ? fmtDate(sub.canceledAt) : '—'}
             />
-            <Field label="Price ID" value={sub.priceId} mono />
-            <Field label="Product ID" value={sub.productId} mono />
+            <Field label={t('operate.stripeSubPriceId')} value={sub.priceId} mono />
+            <Field label={t('operate.stripeSubProductId')} value={sub.productId} mono />
           </dl>
         </div>
       )}
@@ -321,16 +333,19 @@ function SubscriptionCard({
 function ConnectCard({
   connect,
   error,
+  t,
 }: {
   connect: StripeConnectSummary | null;
   error: string | null;
+  t: TFunc;
 }) {
   return (
     <SectionShell
-      title="Stripe Connect account"
+      title={t('operate.stripeConnectTitle')}
       error={error}
       count={connect ? undefined : 0}
-      empty="Partner hasn't started Connect onboarding. Use the Connect dialog on the managed-account row to send them a link."
+      empty={t('operate.stripeConnectEmpty')}
+      t={t}
     >
       {connect && (
         <div className="space-y-3">
@@ -353,11 +368,11 @@ function ConnectCard({
           </div>
 
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-            <Field label="Account ID" value={connect.accountId} mono />
-            <Field label="Type" value={connect.type} />
-            <Field label="Country" value={connect.country ?? '—'} />
+            <Field label={t('operate.stripeConnectId')} value={connect.accountId} mono />
+            <Field label={t('operate.stripeConnectType')} value={connect.type} />
+            <Field label={t('operate.stripeConnectCountry')} value={connect.country ?? '—'} />
             <Field
-              label="Payout schedule"
+              label={t('operate.stripeConnectPayout')}
               value={connect.defaultPayoutInterval ?? '—'}
             />
           </dl>
@@ -365,7 +380,7 @@ function ConnectCard({
           {Object.keys(connect.capabilities).length > 0 && (
             <div>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Capabilities
+                {t('operate.stripeConnectCapabilities')}
               </p>
               <div className="mt-1 flex flex-wrap gap-2">
                 {Object.entries(connect.capabilities).map(([cap, status]) => (
@@ -382,10 +397,10 @@ function ConnectCard({
           {(connect.requirementsCurrentlyDue.length > 0 ||
             connect.requirementsPastDue.length > 0) && (
             <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-              <p className="font-medium">Outstanding requirements:</p>
+              <p className="font-medium">{t('operate.stripeConnectRequirements')}</p>
               {connect.requirementsPastDue.length > 0 && (
                 <p className="mt-1">
-                  <strong>Past due:</strong>{' '}
+                  <strong>{t('operate.stripeConnectPastDue')}</strong>{' '}
                   <span className="font-mono">
                     {connect.requirementsPastDue.join(', ')}
                   </span>
@@ -393,7 +408,7 @@ function ConnectCard({
               )}
               {connect.requirementsCurrentlyDue.length > 0 && (
                 <p className="mt-1">
-                  <strong>Currently due:</strong>{' '}
+                  <strong>{t('operate.stripeConnectCurrentlyDue')}</strong>{' '}
                   <span className="font-mono">
                     {connect.requirementsCurrentlyDue.join(', ')}
                   </span>
@@ -414,16 +429,19 @@ function ConnectCard({
 function InvoicesCard({
   invoices,
   error,
+  t,
 }: {
   invoices: StripeInvoiceSummary[];
   error: string | null;
+  t: TFunc;
 }) {
   return (
     <SectionShell
-      title="Recent invoices"
+      title={t('operate.stripeInvoicesTitle')}
       count={invoices.length}
       error={error}
-      empty="No invoices yet."
+      empty={t('operate.stripeInvoicesEmpty')}
+      t={t}
     >
       <ul className="space-y-2">
         {invoices.map((inv) => (
@@ -441,11 +459,11 @@ function InvoicesCard({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {fmtDate(inv.created)}
                 {' · '}
-                {fmtMoney(inv.amountPaid, inv.currency)} paid
+                {fmtMoney(inv.amountPaid, inv.currency)} {t('operate.stripePaid')}
                 {inv.amountRemaining > 0 && (
                   <span className="text-amber-700">
                     {' · '}
-                    {fmtMoney(inv.amountRemaining, inv.currency)} remaining
+                    {t('operate.stripeRemaining', { amount: fmtMoney(inv.amountRemaining, inv.currency) })}
                   </span>
                 )}
               </p>
@@ -457,7 +475,7 @@ function InvoicesCard({
                 rel="noopener noreferrer"
                 className="shrink-0 text-xs text-primary hover:underline"
               >
-                Hosted ↗
+                {t('operate.stripeHostedLink')}
               </Link>
             )}
           </li>
@@ -474,16 +492,19 @@ function InvoicesCard({
 function PaymentsCard({
   payments,
   error,
+  t,
 }: {
   payments: StripePaymentIntentSummary[];
   error: string | null;
+  t: TFunc;
 }) {
   return (
     <SectionShell
-      title="Recent payments"
+      title={t('operate.stripePaymentsTitle')}
       count={payments.length}
       error={error}
-      empty="No PaymentIntents yet. Rent collection (via Connect) and one-off charges will land here."
+      empty={t('operate.stripePaymentsEmpty')}
+      t={t}
     >
       <ul className="space-y-2">
         {payments.map((pi) => (
@@ -526,16 +547,19 @@ function PaymentsCard({
 function DisputesCard({
   disputes,
   error,
+  t,
 }: {
   disputes: StripeDisputeSummary[];
   error: string | null;
+  t: TFunc;
 }) {
   return (
     <SectionShell
-      title="Disputes"
+      title={t('operate.stripeDisputesTitle')}
       count={disputes.length}
       error={error}
-      empty="No disputes against this partner. (Chargebacks land on the Connect account.)"
+      empty={t('operate.stripeDisputesEmpty')}
+      t={t}
     >
       <ul className="space-y-2">
         {disputes.map((d) => (
@@ -555,12 +579,12 @@ function DisputesCard({
               </p>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Reason: <span className="font-medium text-foreground">{d.reason}</span>
+              {t('operate.stripeDisputeReason')} <span className="font-medium text-foreground">{d.reason}</span>
               {' · '}
-              opened {fmtDate(d.created)}
+              {t('operate.stripeDisputeOpened', { date: fmtDate(d.created) })}
               {d.evidenceDueBy && (
                 <span className="text-amber-700">
-                  {' · '}evidence due {fmtDate(d.evidenceDueBy)}
+                  {' · '}{t('operate.stripeDisputeEvidenceDue', { date: fmtDate(d.evidenceDueBy) })}
                 </span>
               )}
             </p>

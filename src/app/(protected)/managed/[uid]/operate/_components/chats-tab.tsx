@@ -13,6 +13,7 @@ import {
 } from '../actions';
 import type { OperateChatsSummary } from '../actions';
 import { Field, InputStyles, Overlay } from '../../../_components/dialog-primitives';
+import { useT } from '@/i18n/client';
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -30,11 +31,12 @@ export function ChatsTab({
   chats: OperateChatsSummary[];
   disabled: boolean;
 }) {
+  const t = useT();
   if (chats.length === 0) {
     return (
       <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
         <p className="text-sm text-muted-foreground">
-          No chats yet for this partner.
+          {t('operate.chatsEmpty')}
         </p>
       </section>
     );
@@ -66,6 +68,7 @@ function ChatRow({
   chat: OperateChatsSummary;
   disabled: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const subtitleBits = [
     chat.counterpartyAge != null ? `${chat.counterpartyAge} yrs` : null,
@@ -82,7 +85,7 @@ function ChatRow({
           {chat.hasUnread && (
             <span
               className="inline-block h-2 w-2 shrink-0 rounded-full bg-primary"
-              title="Unread message"
+              title={t('operate.chatUnreadTitle')}
             />
           )}
         </div>
@@ -92,7 +95,7 @@ function ChatRow({
           </p>
         )}
         <p className="mt-1 truncate text-xs text-muted-foreground">
-          {chat.lastMessageText ?? '(no messages yet)'}
+          {chat.lastMessageText ?? t('operate.chatNoMessages')}
         </p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2">
@@ -104,7 +107,7 @@ function ChatRow({
           onClick={() => setOpen(true)}
           className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
         >
-          Open chat
+          {t('operate.chatOpenButton')}
         </button>
       </div>
       {open && (
@@ -149,6 +152,7 @@ function ChatThreadDialog({
   disabled: boolean;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [body, setBody] = useState('');
@@ -210,7 +214,7 @@ function ChatThreadDialog({
                 chat.counterpartyProfession,
               ]
                 .filter(Boolean)
-                .join(' · ') || 'No profile details'}
+                .join(' · ') || t('operate.chatNoProfile')}
             </p>
           </div>
         </header>
@@ -224,9 +228,9 @@ function ChatThreadDialog({
           {loadError ? (
             <p className="text-sm text-destructive">{loadError}</p>
           ) : messages === null ? (
-            <p className="text-sm text-muted-foreground">Loading thread…</p>
+            <p className="text-sm text-muted-foreground">{t('operate.chatDialogLoadingThread')}</p>
           ) : messages.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No messages yet.</p>
+            <p className="text-sm text-muted-foreground">{t('operate.chatDialogNoMessages')}</p>
           ) : (
             messages.map((m) => (
               <MessageBubble key={m.messageId} message={m} partnerUid={uid} />
@@ -236,7 +240,7 @@ function ChatThreadDialog({
 
         {/* Composer */}
         <div className="mt-4">
-          <Field label="Reply as partner" hint={`${body.length} / 4000`}>
+          <Field label={t('operate.chatDialogReplyLabel')} hint={`${body.length} / 4000`}>
             <textarea
               rows={3}
               maxLength={4000}
@@ -246,8 +250,8 @@ function ChatThreadDialog({
               className="input"
               placeholder={
                 disabled
-                  ? 'Account is locked — replies disabled.'
-                  : 'Type a message…'
+                  ? t('operate.chatDialogReplyLockedPlaceholder')
+                  : t('operate.chatDialogReplyPlaceholder')
               }
             />
           </Field>
@@ -269,7 +273,7 @@ function ChatThreadDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Close
+            {t('common.close')}
           </button>
           <button
             type="button"
@@ -277,7 +281,7 @@ function ChatThreadDialog({
             disabled={pending || disabled || body.trim().length === 0}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Sending…' : 'Send'}
+            {pending ? t('operate.chatDialogSendingButton') : t('operate.chatDialogSendButton')}
           </button>
         </div>
 
@@ -294,6 +298,7 @@ function MessageBubble({
   message: OperateChatMessage;
   partnerUid: string;
 }) {
+  const t = useT();
   // "Outgoing" = sent by the partner (the account we operate as). Those
   // sit on the right; the counterparty's messages on the left.
   const outgoing = message.senderId === partnerUid;
@@ -302,7 +307,7 @@ function MessageBubble({
   if (isSystem) {
     return (
       <p className="text-center text-[11px] italic text-muted-foreground">
-        {message.content || '(system event)'}
+        {message.content || t('operate.chatSystemEvent')}
       </p>
     );
   }
@@ -323,7 +328,7 @@ function MessageBubble({
               <img
                 key={url}
                 src={url}
-                alt="Chat attachment"
+                alt={t('operate.chatImageAlt')}
                 className="h-24 w-24 rounded object-cover"
               />
             ))}
@@ -339,7 +344,7 @@ function MessageBubble({
           {message.sentAt
             ? dateFormatter.format(message.sentAt)
             : '—'}
-          {message.sentByAdminUid ? ' · via admin' : ''}
+          {message.sentByAdminUid ? t('operate.chatViaAdmin') : ''}
         </p>
       </div>
     </div>

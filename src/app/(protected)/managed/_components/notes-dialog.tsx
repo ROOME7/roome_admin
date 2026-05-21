@@ -7,6 +7,7 @@ import { useState, useTransition } from 'react';
 import { setManagedAccountNote } from '../actions';
 import type { ManagedAccount } from '../_lib/types';
 import { Field, InputStyles, Overlay } from './dialog-primitives';
+import { useT } from '@/i18n/client';
 
 const noteDateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function NotesButton({ account }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -30,7 +32,7 @@ export function NotesButton({ account }: Props) {
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Notes
+        {t('managed.notesButton')}
         {account.adminNotes && account.adminNotes.length > 0 && (
           <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
         )}
@@ -42,6 +44,7 @@ export function NotesButton({ account }: Props) {
 }
 
 function NotesDialog({ account, onClose }: { account: ManagedAccount; onClose: () => void }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [value, setValue] = useState(account.adminNotes ?? '');
@@ -61,13 +64,13 @@ function NotesDialog({ account, onClose }: { account: ManagedAccount; onClose: (
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Internal notes</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('managed.notesDialogTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Visible only to Roome admins. Survives handover and archival.
+          {t('managed.notesDialogSubtitle')}
         </p>
 
         <div className="mt-5 space-y-3">
-          <Field label="Note" hint={`${value.length} / 2000`}>
+          <Field label={t('managed.notesFieldLabel')} hint={`${value.length} / 2000`}>
             <textarea
               rows={8}
               maxLength={2000}
@@ -75,13 +78,13 @@ function NotesDialog({ account, onClose }: { account: ManagedAccount; onClose: (
               onChange={(e) => setValue(e.target.value)}
               disabled={pending}
               className="input"
-              placeholder="Anything worth recording…"
+              placeholder={t('managed.notesPlaceholder')}
             />
           </Field>
 
           {account.adminNotesUpdatedAt && (
             <p className="text-xs text-muted-foreground">
-              Last edited {noteDateFormatter.format(account.adminNotesUpdatedAt)}
+              {t('managed.notesLastEdited', { date: noteDateFormatter.format(account.adminNotesUpdatedAt) })}
               {account.adminNotesUpdatedByUid && (
                 <span className="font-mono"> by {account.adminNotesUpdatedByUid.slice(0, 8)}…</span>
               )}
@@ -105,7 +108,7 @@ function NotesDialog({ account, onClose }: { account: ManagedAccount; onClose: (
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -113,7 +116,7 @@ function NotesDialog({ account, onClose }: { account: ManagedAccount; onClose: (
             disabled={pending}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Saving…' : 'Save'}
+            {pending ? t('common.saving') : t('common.save')}
           </button>
         </div>
 

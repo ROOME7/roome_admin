@@ -16,6 +16,7 @@ import {
   approveB2bRequest as approveAction,
   rejectB2bRequest as rejectAction,
 } from '../actions';
+import { useT } from '@/i18n/client';
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -27,6 +28,7 @@ interface RequestActionsProps {
 }
 
 export function RequestActions({ requestId, companyName }: RequestActionsProps) {
+  const t = useT();
   const [mode, setMode] = useState<Mode | null>(null);
 
   return (
@@ -37,14 +39,14 @@ export function RequestActions({ requestId, companyName }: RequestActionsProps) 
           onClick={() => setMode('reject')}
           className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
         >
-          Reject
+          {t('supervision.rejectBtn')}
         </button>
         <button
           type="button"
           onClick={() => setMode('approve')}
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
         >
-          Approve
+          {t('supervision.approveBtn')}
         </button>
       </div>
 
@@ -68,15 +70,16 @@ interface DialogProps {
 }
 
 function ActionDialog({ mode, requestId, companyName, onClose }: DialogProps) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const isApprove = mode === 'approve';
-  const title = isApprove ? 'Approve this company?' : 'Reject this company?';
+  const title = isApprove ? t('supervision.approveTitle') : t('supervision.rejectTitle');
   const intro = isApprove
-    ? `This will mark ${companyName} as an approved B2B owner. They'll be able to publish listings immediately and won't be charged the €150 annual subscription.`
-    : `This will reject ${companyName}'s B2B application. Please record a reason — the owner sees it and we may need it for compliance.`;
-  const submitLabel = isApprove ? 'Approve' : 'Reject';
+    ? t('supervision.approveIntro', { companyName })
+    : t('supervision.rejectIntro', { companyName });
+  const submitLabel = isApprove ? t('supervision.approveBtn') : t('supervision.rejectBtn');
   const submitClass = isApprove
     ? 'bg-primary text-primary-foreground hover:bg-roome-blue-dark'
     : 'bg-destructive text-destructive-foreground hover:opacity-90';
@@ -104,7 +107,7 @@ function ActionDialog({ mode, requestId, companyName, onClose }: DialogProps) {
         <p className="mt-2 text-sm text-muted-foreground">{intro}</p>
 
         <label className="mt-4 block text-sm font-medium text-foreground">
-          {isApprove ? 'Internal note (optional)' : 'Reason for rejection'}
+          {isApprove ? t('supervision.internalNote') : t('supervision.reasonForRejection')}
           <textarea
             name={isApprove ? 'notes' : 'reason'}
             required={!isApprove}
@@ -115,8 +118,8 @@ function ActionDialog({ mode, requestId, companyName, onClose }: DialogProps) {
             className="mt-1.5 block w-full rounded-md border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
             placeholder={
               isApprove
-                ? 'Any context worth recording…'
-                : 'Why is this company being rejected?'
+                ? t('supervision.notePlaceholder')
+                : t('supervision.reasonPlaceholder')
             }
           />
         </label>
@@ -137,14 +140,14 @@ function ActionDialog({ mode, requestId, companyName, onClose }: DialogProps) {
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             disabled={pending}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${submitClass}`}
           >
-            {pending ? 'Working…' : submitLabel}
+            {pending ? t('supervision.working') : submitLabel}
           </button>
         </div>
       </form>

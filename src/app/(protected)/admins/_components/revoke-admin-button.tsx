@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from 'react';
 import { revokeAdminRole } from '../../managed/actions';
+import { useT } from '@/i18n/client';
 
 export function RevokeAdminButton({ uid, email }: { uid: string; email: string }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export function RevokeAdminButton({ uid, email }: { uid: string; email: string }
         onClick={() => setConfirm(true)}
         className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
       >
-        Revoke
+        {t('admins.revoke')}
       </button>
     );
   }
@@ -46,16 +48,16 @@ export function RevokeAdminButton({ uid, email }: { uid: string; email: string }
           disabled={pending}
           className="rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
           onClick={submit}
           disabled={pending}
-          title={`Revoke admin from ${email}`}
+          title={t('admins.revokeTitle', { email })}
           className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {pending ? 'Revoking…' : 'Confirm revoke'}
+          {pending ? t('admins.revoking') : t('admins.confirmRevoke')}
         </button>
       </div>
       {error && (

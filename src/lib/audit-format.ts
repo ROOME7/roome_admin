@@ -2,6 +2,13 @@
 // by both Server Components (audit.ts's read helpers feed them) and
 // 'use client' dialogs that render the activity timeline. Lives outside
 // audit.ts because audit.ts is 'server-only' (firebase-admin imports).
+//
+// formatAdminAction is locale-aware: callers pass a `t` function (from
+// getT() server-side or useT() client-side). Dynamic data — reasons,
+// emails, amounts, IDs — is passed through verbatim; only the fixed
+// phrasing is translated.
+
+import type { TFunc } from '@/i18n/t';
 
 export interface AdminActionEntry {
   id: string;
@@ -23,67 +30,71 @@ export interface FormattedAction {
   tone: 'neutral' | 'positive' | 'warning' | 'destructive';
 }
 
-export function formatAdminAction(entry: AdminActionEntry): FormattedAction {
+export function formatAdminAction(
+  entry: AdminActionEntry,
+  t: TFunc
+): FormattedAction {
   const p = entry.payload;
   const via = typeof p.via === 'string' ? (p.via as string) : null;
 
   switch (entry.action) {
     case 'edit_profile':
       return {
-        title: 'Edited profile',
+        title: t('audit.editProfile'),
         detail: Array.isArray(p.fields) ? (p.fields as unknown[]).join(', ') : '',
         tone: 'neutral',
       };
     case 'set_note':
       return {
-        title: 'Updated admin notes',
-        detail: typeof p.length === 'number' ? `${p.length} chars` : '',
+        title: t('audit.setNote'),
+        detail:
+          typeof p.length === 'number'
+            ? t('audit.charsCount', { count: p.length as number })
+            : '',
         tone: 'neutral',
       };
     case 'set_tags':
       return {
-        title: 'Updated tags',
+        title: t('audit.setTags'),
         detail: Array.isArray(p.tags)
-          ? (p.tags as unknown[]).join(', ') || '(cleared)'
+          ? (p.tags as unknown[]).join(', ') || t('audit.tagsCleared')
           : '',
         tone: 'neutral',
       };
     case 'suspend':
       return {
-        title: 'Suspended account',
+        title: t('audit.suspend'),
         detail: typeof p.reason === 'string' ? (p.reason as string) : '',
         tone: 'warning',
       };
     case 'reactivate':
       return {
-        title: 'Reactivated account',
+        title: t('audit.reactivate'),
         detail:
           typeof p.listingsRestored === 'number'
-            ? `${p.listingsRestored} listing(s) restored`
+            ? t('audit.listingsRestored', { count: p.listingsRestored as number })
             : '',
         tone: 'positive',
       };
     case 'archive':
       return {
-        title: 'Archived account',
+        title: t('audit.archive'),
         detail: typeof p.reason === 'string' ? (p.reason as string) : '',
         tone: 'destructive',
       };
     case 'reclaim':
-      return { title: 'Reclaimed management', detail: '', tone: 'positive' };
+      return { title: t('audit.reclaim'), detail: '', tone: 'positive' };
     case 'set_waiver': {
       const active = p.active === true;
       return {
-        title: active
-          ? 'Granted subscription waiver'
-          : 'Revoked subscription waiver',
+        title: active ? t('audit.waiverGranted') : t('audit.waiverRevoked'),
         detail: active && typeof p.reason === 'string' ? (p.reason as string) : '',
         tone: active ? 'positive' : 'neutral',
       };
     }
     case 'refund':
       return {
-        title: 'Refunded subscription invoice',
+        title: t('audit.refund'),
         detail:
           typeof p.amountCents === 'number'
             ? `€${((p.amountCents as number) / 100).toFixed(2)}`
@@ -92,19 +103,19 @@ export function formatAdminAction(entry: AdminActionEntry): FormattedAction {
       };
     case 'trigger_connect_onboarding':
       return {
-        title: 'Sent Connect onboarding link',
+        title: t('audit.connectOnboarding'),
         detail: typeof p.accountId === 'string' ? (p.accountId as string) : '',
         tone: 'neutral',
       };
     case 'grant_admin':
       return {
-        title: 'Granted admin role',
+        title: t('audit.grantAdmin'),
         detail: typeof p.email === 'string' ? (p.email as string) : '',
         tone: 'positive',
       };
     case 'revoke_admin':
       return {
-        title: 'Revoked admin role',
+        title: t('audit.revokeAdmin'),
         detail: '',
         tone: 'destructive',
       };
@@ -116,16 +127,16 @@ export function formatAdminAction(entry: AdminActionEntry): FormattedAction {
       switch (via) {
         case 'send_message_as':
           return {
-            title: 'Sent chat message as partner',
+            title: t('audit.sendMessageAs'),
             detail:
               typeof p.chatId === 'string'
-                ? `chat ${(p.chatId as string).slice(0, 8)}…`
+                ? t('audit.chatRef', { id: (p.chatId as string).slice(0, 8) })
                 : '',
             tone: 'neutral',
           };
         case 'edit_listing_as':
           return {
-            title: 'Edited listing as partner',
+            title: t('audit.editListingAs'),
             detail: Array.isArray(p.fieldsUpdated)
               ? (p.fieldsUpdated as unknown[]).join(', ')
               : '',
@@ -135,35 +146,42 @@ export function formatAdminAction(entry: AdminActionEntry): FormattedAction {
           return {
             title:
               p.decision === 'accept'
-                ? 'Accepted application as partner'
-                : 'Declined application as partner',
+                ? t('audit.acceptApplicationAs')
+                : t('audit.declineApplicationAs'),
             detail:
               typeof p.contractId === 'string'
-                ? `contract ${(p.contractId as string).slice(0, 8)}…`
+                ? t('audit.contractRef', {
+                    id: (p.contractId as string).slice(0, 8),
+                  })
                 : '',
             tone: p.decision === 'accept' ? 'positive' : 'warning',
           };
         case 'publish_listing_as':
           return {
-            title: 'Published listing as partner',
+            title: t('audit.publishListingAs'),
             detail:
               typeof p.roomCount === 'number'
-                ? `${p.roomCount} room(s), ${p.totalBeds ?? '?'} bed(s)`
+                ? t('audit.roomsBeds', {
+                    rooms: p.roomCount as number,
+                    beds: (p.totalBeds as number | undefined) ?? '?',
+                  })
                 : '',
             tone: 'positive',
           };
         case 'upload_photo_as':
           return {
-            title: 'Uploaded listing photo as partner',
+            title: t('audit.uploadPhotoAs'),
             detail:
               typeof p.propertyId === 'string'
-                ? `property ${(p.propertyId as string).slice(0, 8)}…`
+                ? t('audit.propertyRef', {
+                    id: (p.propertyId as string).slice(0, 8),
+                  })
                 : '',
             tone: 'neutral',
           };
         default:
           return {
-            title: 'Sent partner notification',
+            title: t('audit.partnerNotification'),
             detail: typeof p.title === 'string' ? (p.title as string) : '',
             tone: 'neutral',
           };

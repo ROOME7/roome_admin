@@ -9,14 +9,16 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useT } from '@/i18n/client';
 import type { OwnerType } from '../_lib/types';
 
 export function OwnerTypeChips({ active }: { active: OwnerType | 'all' }) {
+  const t = useT();
   const sp = useSearchParams();
   const items: { value: OwnerType | 'all'; label: string }[] = [
-    { value: 'all', label: 'All types' },
-    { value: 'owner_b2c', label: 'Private' },
-    { value: 'owner_b2b', label: 'Institutional' },
+    { value: 'all', label: t('managed.ownerTypeAll') },
+    { value: 'owner_b2c', label: t('managed.ownerTypePrivate') },
+    { value: 'owner_b2b', label: t('managed.ownerTypeInstitutional') },
   ];
   return (
     <ChipRow
@@ -35,10 +37,11 @@ export function MineOnlyChips({
   active: 'any' | 'mine';
   adminUid: string;
 }) {
+  const t = useT();
   const sp = useSearchParams();
   const items: { value: 'any' | 'mine'; label: string }[] = [
-    { value: 'any', label: 'Any admin' },
-    { value: 'mine', label: 'Managed by me' },
+    { value: 'any', label: t('managed.ownerAny') },
+    { value: 'mine', label: t('managed.ownerMine') },
   ];
   return (
     <ChipRow

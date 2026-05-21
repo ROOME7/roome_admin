@@ -7,8 +7,10 @@
 import { useState, useTransition, type ReactNode } from 'react';
 import type { OwnerType } from '../_lib/types';
 import { createManagedAccount } from '../actions';
+import { useT } from '@/i18n/client';
 
 export function CreateManagedAccountButton() {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -19,7 +21,7 @@ export function CreateManagedAccountButton() {
         className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
       >
         <PlusIcon />
-        Create managed account
+        {t('managed.createButton')}
       </button>
 
       {open && <CreateDialog onClose={() => setOpen(false)} />}
@@ -46,6 +48,7 @@ function PlusIcon() {
 }
 
 function CreateDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ownerType, setOwnerType] = useState<OwnerType>('owner_b2c');
@@ -70,16 +73,14 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl"
       >
         <h2 className="text-lg font-semibold text-foreground">
-          Create managed account
+          {t('managed.createDialogTitle')}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          You&apos;ll operate this account on the partner&apos;s behalf. A random password
-          is set under the hood; the partner gets a password-reset email when you
-          hand over.
+          {t('managed.createDialogSubtitle')}
         </p>
 
         <div className="mt-5 space-y-4">
-          <Field label="Email" required>
+          <Field label={t('managed.fieldEmail')} required>
             <input
               name="email"
               type="email"
@@ -87,11 +88,11 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
               disabled={pending}
               autoComplete="off"
               className="input"
-              placeholder="owner@example.it"
+              placeholder={t('managed.fieldEmailPlaceholder')}
             />
           </Field>
 
-          <Field label="Display name" required>
+          <Field label={t('managed.fieldDisplayNameLabel')} required>
             <input
               name="displayUsername"
               type="text"
@@ -99,11 +100,11 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
               minLength={2}
               disabled={pending}
               className="input"
-              placeholder="Public name shown to tenants"
+              placeholder={t('managed.fieldDisplayNamePlaceholder')}
             />
           </Field>
 
-          <Field label="Owner type" required>
+          <Field label={t('managed.fieldOwnerType')} required>
             <div className="mt-1 flex gap-3">
               <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border border-input bg-surface px-3 py-2 text-sm text-foreground has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                 <input
@@ -115,7 +116,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                   disabled={pending}
                   className="text-primary focus:ring-ring/30"
                 />
-                Private (B2C)
+                {t('managed.ownerTypePrivateRadio')}
               </label>
               <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border border-input bg-surface px-3 py-2 text-sm text-foreground has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                 <input
@@ -127,13 +128,13 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                   disabled={pending}
                   className="text-primary focus:ring-ring/30"
                 />
-                Institutional (B2B)
+                {t('managed.ownerTypeInstitutionalRadio')}
               </label>
             </div>
           </Field>
 
           {!isB2b ? (
-            <Field label="Full name (legal)" required>
+            <Field label={t('managed.fieldFullName')} required>
               <input
                 name="fullName"
                 type="text"
@@ -141,12 +142,12 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                 minLength={2}
                 disabled={pending}
                 className="input"
-                placeholder="Legal name on the contract"
+                placeholder={t('managed.fieldFullNamePlaceholder')}
               />
             </Field>
           ) : (
             <>
-              <Field label="Company name" required>
+              <Field label={t('managed.fieldCompanyName')} required>
                 <input
                   name="companyName"
                   type="text"
@@ -156,7 +157,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                   className="input"
                 />
               </Field>
-              <Field label="VAT number (Partita IVA)" required hint="11 digits">
+              <Field label={t('managed.fieldVatNumber')} required hint={t('managed.fieldVatHint')}>
                 <input
                   name="vatNumber"
                   type="text"
@@ -169,7 +170,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                   placeholder="01234567890"
                 />
               </Field>
-              <Field label="PEC" hint="Optional certified email">
+              <Field label={t('managed.fieldPec')} hint={t('managed.fieldPecHint')}>
                 <input
                   name="pec"
                   type="email"
@@ -180,17 +181,17 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          <Field label="Phone number" hint="Optional">
+          <Field label={t('managed.fieldPhoneNumber')} hint={t('managed.fieldPhoneHint')}>
             <input
               name="phoneNumber"
               type="tel"
               disabled={pending}
               className="input"
-              placeholder="+39 …"
+              placeholder={t('managed.fieldPhonePlaceholder')}
             />
           </Field>
 
-          <Field label="Internal note" hint="Optional, only admins see this">
+          <Field label={t('managed.fieldInternalNote')} hint={t('managed.fieldInternalNoteHint')}>
             <textarea
               name="notes"
               rows={3}
@@ -217,14 +218,14 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             disabled={pending}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Creating…' : 'Create account'}
+            {pending ? t('managed.createSubmitting') : t('managed.createSubmit')}
           </button>
         </div>
 

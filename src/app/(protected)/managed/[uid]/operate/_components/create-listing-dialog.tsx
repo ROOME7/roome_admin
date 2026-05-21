@@ -14,6 +14,7 @@ import {
   type RoomInput,
 } from '../actions';
 import { Field, InputStyles, Overlay } from '../../../_components/dialog-primitives';
+import { useT } from '@/i18n/client';
 
 // ---------------------------------------------------------------------------
 // Nominatim (OpenStreetMap) address autocomplete
@@ -91,6 +92,7 @@ function AddressAutocomplete({
   onPick: (parsed: ParsedAddress) => void;
   disabled: boolean;
 }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -161,11 +163,11 @@ function AddressAutocomplete({
         }}
         disabled={disabled}
         className="input"
-        placeholder="Start typing the address (e.g. Via Roma 12, Milano)"
+        placeholder={t('operate.addressSearchPlaceholder')}
       />
       {loading && (
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-          Searching…
+          {t('operate.addressSearching')}
         </span>
       )}
       {open && results.length > 0 && (
@@ -200,6 +202,7 @@ interface Props {
 }
 
 export function CreateListingButton({ uid, disabled }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -209,7 +212,7 @@ export function CreateListingButton({ uid, disabled }: Props) {
         disabled={disabled}
         className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Create listing as partner
+        {t('operate.createListingButton')}
       </button>
       {open && <CreateListingDialog uid={uid} onClose={() => setOpen(false)} />}
     </>
@@ -253,6 +256,7 @@ function newRoom(): RoomDraft {
 }
 
 function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => void }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -317,11 +321,11 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
       const priceEur = Number.parseFloat(r.priceEuros);
       const bedCount = Number.parseInt(r.bedCount, 10);
       if (!Number.isFinite(priceEur) || priceEur <= 0) {
-        setError(`Room ${i + 1}: price must be > 0.`);
+        setError(t('operate.errRoomPrice', { n: String(i + 1) }));
         return;
       }
       if (!Number.isFinite(bedCount) || bedCount < 1 || bedCount > 6) {
-        setError(`Room ${i + 1}: bed count must be 1–6.`);
+        setError(t('operate.errRoomBeds', { n: String(i + 1) }));
         return;
       }
       parsedRooms.push({
@@ -345,7 +349,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
       ageMax > 99 ||
       ageMin > ageMax
     ) {
-      setError('Ideal tenant: age range must be 18–99 with min ≤ max.');
+      setError(t('operate.errAgeRange'));
       return;
     }
 
@@ -393,28 +397,25 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Create listing as partner</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('operate.createListingTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Creates a property + its rooms with{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">isOnMarket=true</code>.
-          The listing doc is auto-built. Add photos from the listing row after
-          creation.
+          {t('operate.createListingDesc', { fieldOn: 'isOnMarket=true' })}
         </p>
 
         <fieldset className="mt-5 space-y-3 rounded-md border border-border p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Address
+            {t('operate.addressSectionTitle')}
           </legend>
           {/* Autocomplete — pre-fills the rest of the address fields. Admin
               can still edit any individual field manually after picking.
               Picking from the dropdown also captures lat/lon, which is what
               makes the tenant-side map render at the right place. */}
           <Field
-            label="Search address"
+            label={t('operate.addressSearchLabel')}
             hint={
               latitude != null && longitude != null
-                ? `Map pin set (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
-                : 'Pick a result so the tenant map renders'
+                ? t('operate.addressSearchHintPin', { lat: latitude.toFixed(4), lon: longitude.toFixed(4) })
+                : t('operate.addressSearchHintNone')
             }
           >
             <AddressAutocomplete
@@ -434,7 +435,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
           </Field>
           {/* Row 1: Region | Province */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Region" required>
+            <Field label={t('operate.addressRegionLabel')} required>
               <input
                 type="text"
                 required
@@ -442,10 +443,10 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setRegion(e.target.value)}
                 disabled={pending}
                 className="input"
-                placeholder="e.g. Lombardia"
+                placeholder={t('operate.addressRegionPlaceholder')}
               />
             </Field>
-            <Field label="Province" required>
+            <Field label={t('operate.addressProvinceLabel')} required>
               <input
                 type="text"
                 required
@@ -453,13 +454,13 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setProvince(e.target.value)}
                 disabled={pending}
                 className="input"
-                placeholder="e.g. Milano"
+                placeholder={t('operate.addressProvincePlaceholder')}
               />
             </Field>
           </div>
           {/* Row 2: City | Postal code (group cognitively) */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">
-            <Field label="City" required>
+            <Field label={t('operate.addressCityLabel')} required>
               <input
                 type="text"
                 required
@@ -467,10 +468,10 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setCity(e.target.value)}
                 disabled={pending}
                 className="input"
-                placeholder="e.g. Milano"
+                placeholder={t('operate.addressCityPlaceholder')}
               />
             </Field>
-            <Field label="Postal code" required>
+            <Field label={t('operate.addressPostalCodeLabel')} required>
               <input
                 type="text"
                 required
@@ -484,7 +485,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
           </div>
           {/* Row 3: Street | Street number */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">
-            <Field label="Street" required>
+            <Field label={t('operate.addressStreetLabel')} required>
               <input
                 type="text"
                 required
@@ -492,10 +493,10 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setStreet(e.target.value)}
                 disabled={pending}
                 className="input"
-                placeholder="Via Roma"
+                placeholder={t('operate.addressStreetPlaceholder')}
               />
             </Field>
-            <Field label="Street number" required>
+            <Field label={t('operate.addressStreetNumberLabel')} required>
               <input
                 type="text"
                 required
@@ -503,29 +504,29 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 onChange={(e) => setStreetNumber(e.target.value)}
                 disabled={pending}
                 className="input"
-                placeholder="12"
+                placeholder={t('operate.addressStreetNumberPlaceholder')}
               />
             </Field>
           </div>
           {/* Row 4: Neighborhood (optional, full width) */}
-          <Field label="Neighborhood" hint="Optional">
+          <Field label={t('operate.addressNeighborhoodLabel')} hint={t('operate.addressNeighborhoodHint')}>
             <input
               type="text"
               value={neighborhood}
               onChange={(e) => setNeighborhood(e.target.value)}
               disabled={pending}
               className="input"
-              placeholder="e.g. Navigli"
+              placeholder={t('operate.addressNeighborhoodPlaceholder')}
             />
           </Field>
         </fieldset>
 
         <fieldset className="mt-5 space-y-4 rounded-md border border-border p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Property facts
+            {t('operate.propertySectionTitle')}
           </legend>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Type" required>
+            <Field label={t('operate.propertyTypeLabel')} required>
               <select
                 value={propertyType}
                 onChange={(e) =>
@@ -534,12 +535,12 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 disabled={pending}
                 className="input"
               >
-                <option value="apartment">Apartment</option>
-                <option value="house">House</option>
-                <option value="shared_house">Shared house</option>
+                <option value="apartment">{t('operate.propertyTypeApartment')}</option>
+                <option value="house">{t('operate.propertyTypeHouse')}</option>
+                <option value="shared_house">{t('operate.propertyTypeSharedHouse')}</option>
               </select>
             </Field>
-            <Field label="Floor" hint="Optional">
+            <Field label={t('operate.propertyFloorLabel')} hint={t('operate.propertyFloorHint')}>
               <input
                 type="number"
                 value={floor}
@@ -548,7 +549,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 className="input"
               />
             </Field>
-            <Field label="Bathrooms" required>
+            <Field label={t('operate.propertyBathroomsLabel')} required>
               <input
                 type="number"
                 min={0}
@@ -561,7 +562,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
               />
             </Field>
           </div>
-          <Field label="Description" required hint={`${description.length} / 5000`}>
+          <Field label={t('operate.propertyDescriptionLabel')} required hint={`${description.length} / 5000`}>
             <textarea
               rows={4}
               maxLength={5000}
@@ -576,7 +577,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
 
         <fieldset className="mt-5 space-y-4 rounded-md border border-border p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            In-App Rent Payment
+            {t('operate.rentSectionTitle')}
           </legend>
           <label className="inline-flex items-center gap-2 text-sm">
             <input
@@ -585,10 +586,10 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
               onChange={(e) => setInAppRentPaymentEnabled(e.target.checked)}
               disabled={pending}
             />
-            Enable In-App Rent Payment on this listing
+            {t('operate.rentEnableLabel')}
           </label>
           {inAppRentPaymentEnabled && (
-            <Field label="Rent due day of month" required hint="1–28">
+            <Field label={t('operate.rentDueDayLabel')} required hint={t('operate.rentDueDayHint')}>
               <input
                 type="number"
                 min={1}
@@ -605,14 +606,13 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
 
         <fieldset className="mt-5 space-y-4 rounded-md border border-border p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Ideal tenant
+            {t('operate.idealTenantSectionTitle')}
           </legend>
           <p className="text-xs text-muted-foreground">
-            Feeds the tenant-side compatibility score. Leave everything on
-            &quot;Any&quot; if the partner has no preference.
+            {t('operate.idealTenantDesc')}
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Age min" required>
+            <Field label={t('operate.idealAgeMinLabel')} required>
               <input
                 type="number"
                 min={18}
@@ -624,7 +624,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 className="input"
               />
             </Field>
-            <Field label="Age max" required>
+            <Field label={t('operate.idealAgeMaxLabel')} required>
               <input
                 type="number"
                 min={18}
@@ -638,7 +638,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
             </Field>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Gender preference" required>
+            <Field label={t('operate.idealGenderLabel')} required>
               <select
                 value={idealGender}
                 onChange={(e) =>
@@ -647,12 +647,12 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 disabled={pending}
                 className="input"
               >
-                <option value="indifferente">Any</option>
-                <option value="maschio">Male</option>
-                <option value="femmina">Female</option>
+                <option value="indifferente">{t('operate.idealGenderAny')}</option>
+                <option value="maschio">{t('operate.idealGenderMale')}</option>
+                <option value="femmina">{t('operate.idealGenderFemale')}</option>
               </select>
             </Field>
-            <Field label="Occupation preference" required>
+            <Field label={t('operate.idealOccupationLabel')} required>
               <select
                 value={idealStatus}
                 onChange={(e) =>
@@ -661,16 +661,16 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                 disabled={pending}
                 className="input"
               >
-                <option value="indifferente">Any</option>
-                <option value="studente">Student</option>
-                <option value="lavoratore">Worker</option>
+                <option value="indifferente">{t('operate.idealOccupationAny')}</option>
+                <option value="studente">{t('operate.idealOccupationStudent')}</option>
+                <option value="lavoratore">{t('operate.idealOccupationWorker')}</option>
               </select>
             </Field>
           </div>
           {/* Field of study — only relevant for a student preference, same
               as the Flutter add-house form, which hides it otherwise. */}
           {idealStatus === 'studente' && (
-            <Field label="Field of study" hint="Used for student compatibility">
+            <Field label={t('operate.idealFieldOfStudyLabel')} hint={t('operate.idealFieldOfStudyHint')}>
               <select
                 value={idealArea}
                 onChange={(e) => setIdealArea(e.target.value)}
@@ -689,7 +689,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
 
         <fieldset className="mt-5 space-y-3 rounded-md border border-border p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Rooms · {rooms.length}
+            {t('operate.roomsSectionTitle', { count: String(rooms.length) })}
           </legend>
           {rooms.map((r, idx) => (
             <div
@@ -699,7 +699,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
               {/* Header: Room N label + Remove (only when >1 room) */}
               <header className="flex items-center justify-between gap-3">
                 <h4 className="text-sm font-semibold text-foreground">
-                  Room {idx + 1}
+                  {t('operate.roomTitle', { n: String(idx + 1) })}
                 </h4>
                 {rooms.length > 1 && (
                   <button
@@ -708,14 +708,14 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                     disabled={pending}
                     className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Remove
+                    {t('common.remove')}
                   </button>
                 )}
               </header>
 
               {/* Body row 1: Type | Price | Beds — proportional widths */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_6rem]">
-                <Field label="Type" required>
+                <Field label={t('operate.roomTypeLabel')} required>
                   <select
                     value={r.type}
                     onChange={(e) =>
@@ -726,12 +726,12 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                     disabled={pending}
                     className="input"
                   >
-                    <option value="single">Single</option>
-                    <option value="double">Double</option>
-                    <option value="master">Master</option>
+                    <option value="single">{t('operate.roomTypeSingle')}</option>
+                    <option value="double">{t('operate.roomTypeDouble')}</option>
+                    <option value="master">{t('operate.roomTypeMaster')}</option>
                   </select>
                 </Field>
-                <Field label="Price / person" required>
+                <Field label={t('operate.roomPriceLabel')} required>
                   <div className="relative mt-1.5">
                     <span
                       className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground"
@@ -754,7 +754,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                     />
                   </div>
                 </Field>
-                <Field label="Beds" required hint="1–6">
+                <Field label={t('operate.roomBedsLabel')} required hint={t('operate.roomBedsHint')}>
                   <input
                     type="number"
                     min={1}
@@ -768,7 +768,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                     className="input"
                   />
                 </Field>
-                <Field label="Status" required>
+                <Field label={t('operate.roomStatusLabel')} required>
                   <select
                     value={r.status}
                     onChange={(e) =>
@@ -779,14 +779,14 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                     disabled={pending}
                     className="input"
                   >
-                    <option value="available">Available</option>
-                    <option value="occupied">Occupied</option>
+                    <option value="available">{t('operate.roomStatusAvailable')}</option>
+                    <option value="occupied">{t('operate.roomStatusOccupied')}</option>
                   </select>
                 </Field>
               </div>
 
               {/* Body row 2: Description, full width */}
-              <Field label="Room description" hint="Optional">
+              <Field label={t('operate.roomDescriptionLabel')} hint={t('operate.roomDescriptionHint')}>
                 <input
                   type="text"
                   value={r.description}
@@ -795,7 +795,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
                   }
                   disabled={pending}
                   className="input"
-                  placeholder="e.g. South-facing, en-suite bathroom"
+                  placeholder={t('operate.roomDescriptionPlaceholder')}
                 />
               </Field>
             </div>
@@ -806,7 +806,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
             disabled={pending || rooms.length >= 10}
             className="rounded-md border border-dashed border-border bg-surface px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
-            + Add room
+            {t('operate.roomAddButton')}
           </button>
         </fieldset>
 
@@ -826,7 +826,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -834,7 +834,7 @@ function CreateListingDialog({ uid, onClose }: { uid: string; onClose: () => voi
             disabled={pending}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Publishing…' : 'Publish listing'}
+            {pending ? t('operate.publishingButton') : t('operate.publishButton')}
           </button>
         </div>
 

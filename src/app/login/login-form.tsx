@@ -16,30 +16,7 @@ import { useRouter } from 'next/navigation';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
 import { adminAuth } from '@/lib/firebase-client';
-
-function errorMessageFor(error: unknown): string {
-  if (error instanceof FirebaseError) {
-    switch (error.code) {
-      case 'auth/invalid-email':
-      case 'auth/invalid-credential':
-      case 'auth/wrong-password':
-      case 'auth/user-not-found':
-        return 'Email or password is incorrect.';
-      case 'auth/too-many-requests':
-        return 'Too many attempts. Try again in a few minutes.';
-      case 'auth/network-request-failed':
-        return 'Network error. Check your connection and try again.';
-      default:
-        return error.message;
-    }
-  }
-  return error instanceof Error ? error.message : 'Sign in failed.';
-}
-
-const ERROR_COPY: Record<string, string> = {
-  not_admin: 'That account is not an admin. Sign in with an admin account.',
-  invalid_session: 'Your session expired. Please sign in again.',
-};
+import { useT } from '@/i18n/client';
 
 export default function LoginForm({
   redirectPath,
@@ -48,10 +25,36 @@ export default function LoginForm({
   redirectPath: string;
   initialError?: string;
 }) {
+  const t = useT();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  function errorMessageFor(error: unknown): string {
+    if (error instanceof FirebaseError) {
+      switch (error.code) {
+        case 'auth/invalid-email':
+        case 'auth/invalid-credential':
+        case 'auth/wrong-password':
+        case 'auth/user-not-found':
+          return t('login.errInvalidCredential');
+        case 'auth/too-many-requests':
+          return t('login.errTooManyAttempts');
+        case 'auth/network-request-failed':
+          return t('login.errNetwork');
+        default:
+          return error.message;
+      }
+    }
+    return error instanceof Error ? error.message : t('login.errSignInFailed');
+  }
+
+  const ERROR_COPY: Record<string, string> = {
+    not_admin: t('login.errNotAdmin'),
+    invalid_session: t('login.errSessionExpired'),
+  };
+
   const [error, setError] = useState<string | null>(
     initialError ? (ERROR_COPY[initialError] ?? null) : null
   );
@@ -74,7 +77,7 @@ export default function LoginForm({
       // 3. Admin gate. Sign out + error if the account doesn't qualify.
       if (!roles.includes('admin')) {
         await signOut(adminAuth);
-        setError('That account is not an admin. Contact your administrator.');
+        setError(t('login.errNotAdminContact'));
         setSubmitting(false);
         return;
       }
@@ -88,7 +91,7 @@ export default function LoginForm({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? `Session creation failed (${res.status}).`);
+        throw new Error(data?.error ?? t('login.errSessionFailed', { status: String(res.status) }));
       }
 
       // 5. Navigate. router.replace so /login isn't in the back history.
@@ -103,7 +106,7 @@ export default function LoginForm({
     <form onSubmit={onSubmit} className="space-y-4">
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-foreground">
-          Email
+          {t('login.emailLabel')}
         </label>
         <input
           id="email"
@@ -119,7 +122,7 @@ export default function LoginForm({
 
       <div>
         <label htmlFor="password" className="block text-sm font-medium text-foreground">
-          Password
+          {t('login.passwordLabel')}
         </label>
         <input
           id="password"
@@ -144,7 +147,7 @@ export default function LoginForm({
         disabled={submitting}
         className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {submitting ? 'Signing in…' : 'Sign in'}
+        {submitting ? t('login.signingIn') : t('login.signIn')}
       </button>
     </form>
   );

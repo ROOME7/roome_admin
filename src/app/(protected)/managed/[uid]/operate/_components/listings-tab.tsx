@@ -9,6 +9,7 @@ import type { OperateListingSummary } from '../actions';
 import { Field, InputStyles, Overlay } from '../../../_components/dialog-primitives';
 import { CreateListingButton } from './create-listing-dialog';
 import { UploadPhotosButton } from './upload-photos-dialog';
+import { useT } from '@/i18n/client';
 
 const statusStyles: Record<string, string> = {
   draft: 'bg-muted text-muted-foreground',
@@ -27,6 +28,7 @@ export function ListingsTab({
   listings: OperateListingSummary[];
   disabled: boolean;
 }) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -35,8 +37,7 @@ export function ListingsTab({
       {listings.length === 0 ? (
         <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
           <p className="text-sm text-muted-foreground">
-            This partner has no listings yet. Click <strong>Create listing as partner</strong>{' '}
-            above to publish one on their behalf.
+            {t('operate.listingsEmptyHint', { button: t('operate.listingsCreateButton') })}
           </p>
         </section>
       ) : (
@@ -61,6 +62,7 @@ function ListingRow({
   listing: OperateListingSummary;
   disabled: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const statusClass = statusStyles[listing.status] ?? 'bg-muted text-muted-foreground';
   return (
@@ -81,7 +83,7 @@ function ListingRow({
             </span>
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-            {listing.description || '(no description)'}
+            {listing.description || t('operate.listingNoDescription')}
           </p>
           <p className="mt-1 font-mono text-[10px] text-muted-foreground">
             {listing.listingId}
@@ -99,7 +101,7 @@ function ListingRow({
             disabled={disabled}
             className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Edit as partner
+            {t('operate.listingEditButton')}
           </button>
           {listing.status !== 'archived' && (
             <DeleteListingButton
@@ -133,6 +135,7 @@ function DeleteListingButton({
   listing: OperateListingSummary;
   disabled: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -142,7 +145,7 @@ function DeleteListingButton({
         disabled={disabled}
         className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Delete
+        {t('common.delete')}
       </button>
       {open && (
         <DeleteListingDialog
@@ -164,6 +167,7 @@ function DeleteListingDialog({
   listing: OperateListingSummary;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState('');
@@ -184,19 +188,14 @@ function DeleteListingDialog({
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-md rounded-xl border border-destructive/30 bg-surface p-6 shadow-xl">
         <h2 className="text-lg font-semibold text-destructive">
-          Remove listing from marketplace?
+          {t('operate.deleteListingTitle')}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Sets the listing to{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">archived</code>{' '}
-          and flips the underlying property&apos;s{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">isOnMarket</code>{' '}
-          to false. The listing disappears from search but the property + rooms
-          stay on file — reversible by editing the property if needed.
+          {t('operate.deleteListingDesc', { statusField: 'archived', marketField: 'isOnMarket' })}
         </p>
 
         <div className="mt-5">
-          <Field label="Reason" hint="Optional, audit log">
+          <Field label={t('operate.deleteReasonLabel')} hint={t('operate.deleteReasonHint')}>
             <textarea
               rows={3}
               maxLength={1000}
@@ -204,7 +203,7 @@ function DeleteListingDialog({
               onChange={(e) => setReason(e.target.value)}
               disabled={pending}
               className="input"
-              placeholder="Why are you removing this listing?"
+              placeholder={t('operate.deleteReasonPlaceholder')}
             />
           </Field>
         </div>
@@ -225,7 +224,7 @@ function DeleteListingDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -233,7 +232,7 @@ function DeleteListingDialog({
             disabled={pending}
             className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Removing…' : 'Remove from marketplace'}
+            {pending ? t('operate.deleteRemovingButton') : t('operate.deleteRemoveButton')}
           </button>
         </div>
 
@@ -257,6 +256,7 @@ function EditListingDialog({
   listing: OperateListingSummary;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -314,15 +314,14 @@ function EditListingDialog({
   return (
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-2xl rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-foreground">Edit listing as partner</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('operate.editListingTitle')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Edits the partner&apos;s listing. Audit stamps record you as the operator;
-          ownership remains with the partner.
+          {t('operate.editListingDesc')}
         </p>
 
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <Field label="Description" hint={`${description.length} / 5000`}>
+            <Field label={t('operate.editDescriptionLabel')} hint={`${description.length} / 5000`}>
               <textarea
                 rows={4}
                 maxLength={5000}
@@ -334,7 +333,7 @@ function EditListingDialog({
             </Field>
           </div>
 
-          <Field label="In-App Rent Payment">
+          <Field label={t('operate.editRentPaymentLabel')}>
             <label className="mt-1 inline-flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -342,11 +341,11 @@ function EditListingDialog({
                 onChange={(e) => setInAppRentPaymentEnabled(e.target.checked)}
                 disabled={pending}
               />
-              Enabled
+              {t('operate.editRentEnabledLabel')}
             </label>
           </Field>
 
-          <Field label="Rent due day of month" hint="1–28 (or blank)">
+          <Field label={t('operate.editRentDueDayLabel')} hint={t('operate.editRentDueDayHint')}>
             <input
               type="number"
               min={1}
@@ -358,7 +357,7 @@ function EditListingDialog({
             />
           </Field>
 
-          <Field label="Availability date" hint="Blank = right away">
+          <Field label={t('operate.editAvailabilityLabel')} hint={t('operate.editAvailabilityHint')}>
             <input
               type="date"
               value={availabilityDate}
@@ -368,7 +367,7 @@ function EditListingDialog({
             />
           </Field>
 
-          <Field label="Preferred stay (months)">
+          <Field label={t('operate.editStayLengthLabel')}>
             <input
               type="number"
               min={1}
@@ -380,7 +379,7 @@ function EditListingDialog({
             />
           </Field>
 
-          <Field label="Ideal tenant — age range">
+          <Field label={t('operate.editIdealAgeLabel')}>
             <div className="mt-1 flex gap-2">
               <input
                 type="number"
@@ -405,29 +404,29 @@ function EditListingDialog({
             </div>
           </Field>
 
-          <Field label="Gender preference">
+          <Field label={t('operate.editGenderPrefLabel')}>
             <select
               value={genderPref}
               onChange={(e) => setGenderPref(e.target.value)}
               disabled={pending}
               className="input"
             >
-              <option value="any">Any</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
+              <option value="any">{t('operate.editGenderAny')}</option>
+              <option value="male">{t('operate.editGenderMale')}</option>
+              <option value="female">{t('operate.editGenderFemale')}</option>
             </select>
           </Field>
 
-          <Field label="Occupation preference">
+          <Field label={t('operate.editOccupationPrefLabel')}>
             <select
               value={occupationPref}
               onChange={(e) => setOccupationPref(e.target.value)}
               disabled={pending}
               className="input"
             >
-              <option value="any">Any</option>
-              <option value="student">Student</option>
-              <option value="worker">Worker</option>
+              <option value="any">{t('operate.editOccupationAny')}</option>
+              <option value="student">{t('operate.editOccupationStudent')}</option>
+              <option value="worker">{t('operate.editOccupationWorker')}</option>
             </select>
           </Field>
         </div>
@@ -445,7 +444,7 @@ function EditListingDialog({
             disabled={pending}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -453,7 +452,7 @@ function EditListingDialog({
             disabled={pending}
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? 'Saving…' : 'Save changes'}
+            {pending ? t('operate.editSavingButton') : t('operate.editSaveButton')}
           </button>
         </div>
 
@@ -468,10 +467,11 @@ function EditListingDialog({
 // Photos dialog only showed a "Done" badge, which made successful uploads
 // feel invisible (2026-05-19 client feedback #1).
 function PhotoStrip({ photoUrls }: { photoUrls: string[] }) {
+  const t = useT();
   if (photoUrls.length === 0) {
     return (
       <p className="mt-3 text-xs italic text-muted-foreground">
-        No photos uploaded yet.
+        {t('operate.listingPhotosEmpty')}
       </p>
     );
   }
@@ -482,7 +482,7 @@ function PhotoStrip({ photoUrls }: { photoUrls: string[] }) {
         <img
           key={url}
           src={url}
-          alt={`Listing photo ${idx + 1}`}
+          alt={t('operate.listingPhotoAlt', { n: String(idx + 1) })}
           className="h-20 w-28 shrink-0 rounded-md border border-border object-cover"
           loading="lazy"
         />

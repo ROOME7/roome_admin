@@ -21,6 +21,8 @@ import {
   type B2bStatus,
   type FilterValue,
 } from './_lib/types';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 
 const STATUS_ORDER_FOR_ALL: B2bStatus[] = ['pending', 'approved', 'rejected'];
 
@@ -120,29 +122,31 @@ export default async function SupervisionPage({
 }) {
   const params = await searchParams;
   const filter = asFilter(params.filter);
-  const { list, counts } = await loadRequests(filter);
+  const [t, { list, counts }] = await Promise.all([
+    getT(),
+    loadRequests(filter),
+  ]);
 
   return (
     <div className="space-y-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Supervision &amp; Approval
+          {t('supervision.title')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Companies that registered as B2B. Approve them to skip the €150 subscription
-          and unlock listing creation.
+          {t('supervision.subtitle')}
         </p>
       </header>
 
-      <FilterTabs active={filter} counts={counts} />
+      <FilterTabs active={filter} counts={counts} t={t} />
 
       {list.length === 0 ? (
-        <EmptyState filter={filter} />
+        <EmptyState filter={filter} t={t} />
       ) : (
         <ul className="space-y-4">
           {list.map((req) => (
             <li key={req.id}>
-              <RequestCard request={req} />
+              <RequestCard request={req} t={t} />
             </li>
           ))}
         </ul>
@@ -151,12 +155,12 @@ export default async function SupervisionPage({
   );
 }
 
-function EmptyState({ filter }: { filter: FilterValue }) {
+function EmptyState({ filter, t }: { filter: FilterValue; t: TFunc }) {
   const messages: Record<FilterValue, string> = {
-    pending: 'No pending applications. Nothing waiting on you right now.',
-    approved: 'No approved applications yet.',
-    rejected: 'No rejected applications.',
-    all: 'No B2B applications have been submitted yet.',
+    pending: t('supervision.emptyPending'),
+    approved: t('supervision.emptyApproved'),
+    rejected: t('supervision.emptyRejected'),
+    all: t('supervision.emptyAll'),
   };
   return (
     <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
@@ -165,7 +169,7 @@ function EmptyState({ filter }: { filter: FilterValue }) {
   );
 }
 
-function RequestCard({ request }: { request: B2bRequest }) {
+function RequestCard({ request, t }: { request: B2bRequest; t: TFunc }) {
   return (
     <article className="rounded-lg border border-border bg-surface p-5">
       <header className="flex items-start justify-between gap-4">
@@ -174,28 +178,28 @@ function RequestCard({ request }: { request: B2bRequest }) {
             {request.companyName}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Submitted {formatDate(request.submittedAt)}
+            {t('supervision.submittedOn', { date: formatDate(request.submittedAt) })}
             {request.reviewedAt && (
               <>
-                {' '}· Reviewed {formatDate(request.reviewedAt)}
+                {' '}{t('supervision.reviewedOn', { date: formatDate(request.reviewedAt) })}
               </>
             )}
           </p>
         </div>
-        <StatusBadge status={request.status} />
+        <StatusBadge status={request.status} t={t} />
       </header>
 
       <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
         <Field label="VAT (Partita IVA)" value={request.vatNumber || '—'} mono />
         <Field label="PEC" value={request.pec ?? '—'} />
-        <Field label="Phone" value={request.phoneNumber ?? '—'} />
-        <Field label="Owner UID" value={request.ownerUid || '—'} mono />
+        <Field label={t('supervision.fieldPhone')} value={request.phoneNumber ?? '—'} />
+        <Field label={t('supervision.fieldOwnerUid')} value={request.ownerUid || '—'} mono />
       </dl>
 
       {request.notes && (
         <div className="mt-4 rounded-md border border-border bg-secondary p-3 text-sm">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {request.status === 'rejected' ? 'Rejection reason' : 'Notes'}
+            {request.status === 'rejected' ? t('supervision.rejectionReason') : t('supervision.notes')}
           </p>
           <p className="mt-1 whitespace-pre-wrap text-foreground">{request.notes}</p>
         </div>

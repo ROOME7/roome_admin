@@ -7,6 +7,7 @@
 // of them so the panel is correct regardless of which a given doc has.
 
 import type { Timestamp } from 'firebase-admin/firestore';
+import type { TFunc } from '@/i18n/t';
 
 export function tsToDate(value: unknown): Date | null {
   if (!value) return null;
@@ -114,10 +115,10 @@ export function mapUserRow(
 }
 
 /** Human label for a user's role/type, e.g. "Landlord · B2B". */
-export function roleLabel(kind: UserKind, ownerType: OwnerType): string {
-  if (kind === 'tenant') return 'Tenant';
+export function roleLabel(kind: UserKind, ownerType: OwnerType, t: TFunc): string {
+  if (kind === 'tenant') return t('common.roleTenant');
   if (kind === 'landlord') {
-    return ownerType === 'b2b' ? 'Landlord · B2B' : 'Landlord · B2C';
+    return ownerType === 'b2b' ? t('common.roleLandlordB2b') : t('common.roleLandlordB2c');
   }
-  return 'Other';
+  return t('common.roleOther');
 }

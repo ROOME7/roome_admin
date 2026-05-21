@@ -21,6 +21,7 @@ import { useState, useTransition, type ReactNode } from 'react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { adminAuth } from '@/lib/firebase-client';
 import { handoverManagedAccount } from '../actions';
+import { useT } from '@/i18n/client';
 
 type Outcome =
   | { kind: 'success' }
@@ -34,6 +35,7 @@ export function HandoverButton({
   uid: string;
   displayName: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -42,7 +44,7 @@ export function HandoverButton({
         onClick={() => setOpen(true)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
       >
-        Hand over
+        {t('managed.handoverButton')}
       </button>
       {open && (
         <HandoverDialog
@@ -64,6 +66,7 @@ function HandoverDialog({
   displayName: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
@@ -94,41 +97,40 @@ function HandoverDialog({
     <Overlay onClose={pending ? () => {} : onClose}>
       <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-xl">
         <h2 className="text-lg font-semibold text-foreground">
-          {isDone ? 'Hand-over complete' : `Hand over ${displayName}?`}
+          {isDone
+            ? t('managed.handoverDialogTitleDone')
+            : t('managed.handoverDialogTitleConfirm', { name: displayName })}
         </h2>
 
         {!isDone && (
           <>
             <p className="mt-2 text-sm text-muted-foreground">
-              You&apos;ll no longer manage this account. We&apos;ll email the partner a
-              password-reset link so they can set their own password and sign in
-              directly.
+              {t('managed.handoverSubtitle')}
             </p>
             <ul className="mt-4 space-y-1.5 text-sm text-foreground">
               <li className="flex items-start gap-2">
                 <Check />
                 <span>
-                  <strong className="font-medium">managedBy</strong> is cleared on the
-                  account
+                  <strong className="font-medium">managedBy</strong>{' '}
+                  {t('managed.handoverCheck1ManagedBy')}
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <Check />
                 <span>
-                  Audit trail (
                   <code className="rounded bg-muted px-1 text-xs">
                     managementHandedOverAt
                   </code>{' '}
                   +{' '}
                   <code className="rounded bg-muted px-1 text-xs">
                     managementHandedOverByAdminUid
-                  </code>
-                  ) is preserved
+                  </code>{' '}
+                  — {t('managed.handoverCheck2AuditTrail')}
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <Check />
-                <span>Password-reset email goes to the partner&apos;s registered address</span>
+                <span>{t('managed.handoverCheck3Email')}</span>
               </li>
             </ul>
           </>
@@ -145,16 +147,13 @@ function HandoverDialog({
 
         {outcome?.kind === 'success' && (
           <div className="mt-3 rounded-md bg-success/10 px-3 py-2 text-sm text-success">
-            Account released and password-reset email sent. The partner can now sign in
-            after setting their own password.
+            {t('managed.handoverSuccessMessage')}
           </div>
         )}
 
         {outcome?.kind === 'success_email_failed' && (
           <div className="mt-3 rounded-md bg-secondary px-3 py-2 text-sm text-foreground">
-            Account released. The password-reset email did not go out — ask the
-            partner to use the &ldquo;Forgot password&rdquo; flow on the app/site, or
-            retry from Firebase Console &rarr; Authentication.
+            {t('managed.handoverEmailFailedMessage')}
           </div>
         )}
 
@@ -167,7 +166,7 @@ function HandoverDialog({
                 disabled={pending}
                 className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -175,7 +174,7 @@ function HandoverDialog({
                 disabled={pending}
                 className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {pending ? 'Handing over…' : 'Confirm hand-over'}
+                {pending ? t('managed.handoverConfirming') : t('managed.handoverConfirmButton')}
               </button>
             </>
           ) : (
@@ -184,7 +183,7 @@ function HandoverDialog({
               onClick={onClose}
               className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
             >
-              Done
+              {t('managed.handoverDoneButton')}
             </button>
           )}
         </div>

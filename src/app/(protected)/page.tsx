@@ -18,6 +18,8 @@ import {
   formatAdminAction,
   type AdminActionEntry,
 } from '@/lib/audit-format';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 
 async function loadCounts(): Promise<{
   pendingB2b: number;
@@ -72,6 +74,8 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
 });
 
 export default async function DashboardPage() {
+  const t = await getT();
+
   // Best-effort: if counts or activity fail (e.g. fresh deploy with no
   // collections yet), surface a neutral state rather than blowing up the
   // page.
@@ -90,40 +94,40 @@ export default async function DashboardPage() {
     <div className="space-y-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Dashboard
+          {t('dashboard.title')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          At-a-glance view of B2B approvals and managed-account activity.
+          {t('dashboard.subtitle')}
         </p>
       </header>
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard
-          label="Total tenants"
+          label={t('dashboard.statTotalTenants')}
           value={counts.tenants}
           href="/users?role=tenant"
           tone="neutral"
         />
         <StatCard
-          label="Total landlords"
+          label={t('dashboard.statTotalLandlords')}
           value={counts.landlords}
           href="/users?role=landlord"
           tone="neutral"
         />
         <StatCard
-          label="Pending B2B requests"
+          label={t('dashboard.statPendingB2b')}
           value={counts.pendingB2b}
           href="/supervision"
           tone={counts.pendingB2b > 0 ? 'attention' : 'neutral'}
         />
         <StatCard
-          label="Managed accounts"
+          label={t('dashboard.statManagedAccounts')}
           value={counts.managed}
           href="/managed?filter=active"
           tone="neutral"
         />
         <StatCard
-          label="Suspended accounts"
+          label={t('dashboard.statSuspendedAccounts')}
           value={counts.suspended}
           href="/managed?filter=suspended"
           tone={counts.suspended > 0 ? 'warning' : 'neutral'}
@@ -133,22 +137,23 @@ export default async function DashboardPage() {
       <section className="rounded-lg border border-border bg-surface p-6">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-foreground">
-            Recent activity
+            {t('dashboard.recentActivity')}
           </h2>
           <span className="text-xs text-muted-foreground">
-            Last {activity.length} admin action{activity.length === 1 ? '' : 's'}
+            {activity.length === 1
+              ? t('dashboard.lastAction')
+              : t('dashboard.lastActions', { count: activity.length })}
           </span>
         </div>
 
         {activity.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">
-            Nothing yet — admin actions (suspend, archive, refund, notify, role
-            changes, on-behalf ops) will appear here as they happen.
+            {t('dashboard.emptyActivity')}
           </p>
         ) : (
           <ul className="mt-4 divide-y divide-border">
             {activity.map((entry) => (
-              <ActivityRow key={entry.id} entry={entry} />
+              <ActivityRow key={entry.id} entry={entry} t={t} />
             ))}
           </ul>
         )}
@@ -187,8 +192,8 @@ function StatCard({
   );
 }
 
-function ActivityRow({ entry }: { entry: AdminActionEntry }) {
-  const formatted = formatAdminAction(entry);
+function ActivityRow({ entry, t }: { entry: AdminActionEntry; t: TFunc }) {
+  const formatted = formatAdminAction(entry, t);
   const toneClass = {
     neutral: 'bg-secondary text-muted-foreground',
     positive: 'bg-primary/10 text-primary',

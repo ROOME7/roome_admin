@@ -16,6 +16,8 @@ import Link from 'next/link';
 import type { Timestamp } from 'firebase-admin/firestore';
 import { serverDb } from '@/lib/firebase-admin';
 import { requireAdminSession } from '@/lib/auth';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 import { CreateManagedAccountButton } from './_components/create-managed-account';
 import { HandoverButton } from './_components/handover-dialog';
 import { OwnerTypeBadge, StatusBadge } from './_components/status-badge';
@@ -279,7 +281,7 @@ export default async function ManagedPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const adminSession = await requireAdminSession();
+  const [adminSession, t] = await Promise.all([requireAdminSession(), getT()]);
   const params = await searchParams;
   const filter = asFilter(params.filter);
   const q = typeof params.q === 'string' ? params.q.trim() : '';
@@ -302,17 +304,16 @@ export default async function ManagedPage({
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Active Management
+            {t('managed.pageTitle')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Accounts you operate on behalf of select partners. Create new ones,
-            hand them back when the partner is ready to self-serve.
+            {t('managed.pageSubtitle')}
           </p>
         </div>
         <CreateManagedAccountButton />
       </header>
 
-      <FilterTabs active={filter} counts={counts} />
+      <FilterTabs active={filter} counts={counts} t={t} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <ManagedSearchInput initial={q} />
@@ -328,12 +329,13 @@ export default async function ManagedPage({
           hasActiveFilters={
             q.length > 0 || ownerType !== 'all' || ownerMode === 'mine'
           }
+          t={t}
         />
       ) : (
         <ul className="space-y-4">
           {list.map((account) => (
             <li key={account.uid}>
-              <AccountCard account={account} />
+              <AccountCard account={account} t={t} />
             </li>
           ))}
         </ul>
@@ -345,26 +347,27 @@ export default async function ManagedPage({
 function EmptyState({
   filter,
   hasActiveFilters,
+  t,
 }: {
   filter: FilterValue;
   hasActiveFilters: boolean;
+  t: TFunc;
 }) {
   if (hasActiveFilters) {
     return (
       <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
         <p className="text-sm text-muted-foreground">
-          No accounts match the current filters. Clear search and chips to see
-          everything in this status.
+          {t('managed.emptyFiltered')}
         </p>
       </section>
     );
   }
   const messages: Record<FilterValue, string> = {
-    active: 'No managed accounts yet. Use "Create managed account" above to set one up.',
-    suspended: 'No accounts are currently suspended.',
-    handed_over: 'No accounts have been handed over yet.',
-    archived: 'No archived accounts on record.',
-    all: 'No managed accounts on record yet.',
+    active: t('managed.emptyActive'),
+    suspended: t('managed.emptySuspended'),
+    handed_over: t('managed.emptyHandedOver'),
+    archived: t('managed.emptyArchived'),
+    all: t('managed.emptyAll'),
   };
   return (
     <section className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
@@ -373,7 +376,7 @@ function EmptyState({
   );
 }
 
-function AccountCard({ account }: { account: ManagedAccount }) {
+function AccountCard({ account, t }: { account: ManagedAccount; t: TFunc }) {
   const displayHeader = account.companyName ?? account.displayUsername;
   return (
     <article className="rounded-lg border border-border bg-surface p-5">
@@ -383,56 +386,56 @@ function AccountCard({ account }: { account: ManagedAccount }) {
             <h2 className="truncate text-base font-semibold text-foreground">
               {displayHeader}
             </h2>
-            <OwnerTypeBadge ownerType={account.ownerType} />
+            <OwnerTypeBadge ownerType={account.ownerType} t={t} />
             {account.subscriptionWaiverActive && (
               <span
-                title={account.subscriptionWaiverReason ?? 'Waiver active'}
+                title={account.subscriptionWaiverReason ?? t('managed.waiverActive')}
                 className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-500/30"
               >
-                Waiver
+                {t('managed.waiverButton')}
               </span>
             )}
-            {account.adminTags.map((t) => (
+            {account.adminTags.map((tag) => (
               <span
-                key={t}
+                key={tag}
                 className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
               >
-                {t}
+                {tag}
               </span>
             ))}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {account.email || '(no email)'}
+            {account.email || t('managed.noEmail')}
           </p>
         </div>
-        <StatusBadge status={account.status} />
+        <StatusBadge status={account.status} t={t} />
       </header>
 
       <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-        <Field label="Display name" value={account.displayUsername} />
+        <Field label={t('managed.fieldDisplayName')} value={account.displayUsername} />
         {account.ownerType === 'owner_b2b' && (
-          <Field label="VAT (Partita IVA)" value={account.vatNumber ?? '—'} mono />
+          <Field label={t('managed.fieldVat')} value={account.vatNumber ?? '—'} mono />
         )}
         {account.ownerType === 'owner_b2b' && (
-          <Field label="PEC" value={account.pec ?? '—'} />
+          <Field label={t('managed.fieldPec')} value={account.pec ?? '—'} />
         )}
-        <Field label="Phone" value={account.phoneNumber ?? '—'} />
-        <Field label="UID" value={account.uid} mono />
+        <Field label={t('managed.fieldPhone')} value={account.phoneNumber ?? '—'} />
+        <Field label={t('managed.fieldUid')} value={account.uid} mono />
         {account.status === 'active' ? (
-          <Field label="Managed since" value={formatDate(account.managedAt)} />
+          <Field label={t('managed.fieldManagedSince')} value={formatDate(account.managedAt)} />
         ) : (
-          <Field label="Handed over" value={formatDate(account.managementHandedOverAt)} />
+          <Field label={t('managed.fieldHandedOver')} value={formatDate(account.managementHandedOverAt)} />
         )}
       </dl>
 
       {account.status === 'suspended' && account.suspendedReason && (
         <p className="mt-4 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-          <span className="font-medium">Suspension reason:</span> {account.suspendedReason}
+          <span className="font-medium">{t('managed.suspensionReasonLabel')}</span> {account.suspendedReason}
         </p>
       )}
       {account.status === 'archived' && account.deletionReason && (
         <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <span className="font-medium">Archive reason:</span> {account.deletionReason}
+          <span className="font-medium">{t('managed.archiveReasonLabel')}</span> {account.deletionReason}
         </p>
       )}
 
@@ -452,7 +455,7 @@ function AccountCard({ account }: { account: ManagedAccount }) {
             <WaiverButton account={account} />
             <SuspendButton account={account} />
             <ArchiveButton account={account} />
-            <OperateLink uid={account.uid} />
+            <OperateLink uid={account.uid} label={t('managed.operate')} />
             <HandoverButton uid={account.uid} displayName={displayHeader} />
           </>
         )}
@@ -482,7 +485,7 @@ function AccountCard({ account }: { account: ManagedAccount }) {
   );
 }
 
-function OperateLink({ uid }: { uid: string }) {
+function OperateLink({ uid, label }: { uid: string; label: string }) {
   // T3-A: on-behalf actions via server-action proxy. No impersonation
   // session; every write stamps _impersonatedByAdminUid directly on the
   // affected doc. See docs/architecture/admin-panel-roadmap.md §T3.
@@ -491,7 +494,7 @@ function OperateLink({ uid }: { uid: string }) {
       href={`/managed/${uid}/operate`}
       className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
     >
-      Operate
+      {label}
     </Link>
   );
 }

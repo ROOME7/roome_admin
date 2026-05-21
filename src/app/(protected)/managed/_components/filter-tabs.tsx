@@ -1,25 +1,28 @@
 import Link from 'next/link';
+import type { TFunc } from '@/i18n/t';
 import type { FilterValue } from '../_lib/types';
-
-const TABS: { value: FilterValue; label: string }[] = [
-  { value: 'active', label: 'Managed' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'handed_over', label: 'Handed over' },
-  { value: 'archived', label: 'Archived' },
-  { value: 'all', label: 'All' },
-];
 
 export function FilterTabs({
   active,
   counts,
+  t,
 }: {
   active: FilterValue;
   counts: Record<FilterValue, number>;
+  t: TFunc;
 }) {
+  const TABS: { value: FilterValue; label: string }[] = [
+    { value: 'active', label: t('managed.tabManaged') },
+    { value: 'suspended', label: t('managed.tabSuspended') },
+    { value: 'handed_over', label: t('managed.tabHandedOver') },
+    { value: 'archived', label: t('managed.tabArchived') },
+    { value: 'all', label: t('managed.tabAll') },
+  ];
+
   return (
     <div
       role="tablist"
-      aria-label="Managed account filters"
+      aria-label={t('managed.filterTabsAriaLabel')}
       className="inline-flex rounded-lg border border-border bg-surface p-1"
     >
       {TABS.map((tab) => {

@@ -19,6 +19,8 @@ import {
   type PaymentRow,
   type PaymentKind,
 } from './_lib/finance';
+import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +33,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
 
 export default async function FinancesPage() {
   await requireAdminSession();
+  const t = await getT();
 
   let data: FinanceData | null = null;
   let error: string | null = null;
@@ -44,36 +47,34 @@ export default async function FinancesPage() {
     <div className="space-y-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Finances
+          {t('finances.title')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Roome&apos;s earnings — owner subscriptions and rent service fees,
-          read straight from the Stripe balance ledger.
+          {t('finances.subtitle')}
         </p>
       </header>
 
       {error || !data ? (
         <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-6">
           <p className="text-sm font-medium text-destructive">
-            Couldn&apos;t load financial data from Stripe.
+            {t('finances.errorLoad')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{error}</p>
         </section>
       ) : (
-        <FinancesBody data={data} />
+        <FinancesBody t={t} data={data} />
       )}
     </div>
   );
 }
 
-function FinancesBody({ data }: { data: FinanceData }) {
+function FinancesBody({ t, data }: { t: TFunc; data: FinanceData }) {
   return (
     <>
       {data.truncated && (
         <section className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
           <p className="text-sm text-amber-700">
-            The year-to-date ledger exceeded the fetch limit — figures below
-            may be incomplete. Consider a nightly rollup.
+            {t('finances.truncatedWarning')}
           </p>
         </section>
       )}
@@ -81,48 +82,55 @@ function FinancesBody({ data }: { data: FinanceData }) {
       {/* Headline figures — month-to-date big, year-to-date underneath. */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <HeadlineCard
-          label="Net earnings"
-          hint="Our cut after Stripe fees"
+          t={t}
+          label={t('finances.headlineNetEarnings')}
+          hint={t('finances.headlineNetEarningsHint')}
           mtd={data.mtd.netEarnings}
           ytd={data.ytd.netEarnings}
           tone="primary"
         />
         <HeadlineCard
-          label="Gross cut"
-          hint="Before Stripe processing fees"
+          t={t}
+          label={t('finances.headlineGrossCut')}
+          hint={t('finances.headlineGrossCutHint')}
           mtd={data.mtd.grossCut}
           ytd={data.ytd.grossCut}
         />
         <HeadlineCard
-          label="Volume processed"
-          hint="Every euro that moved through Roome"
+          t={t}
+          label={t('finances.headlineVolume')}
+          hint={t('finances.headlineVolumeHint')}
           mtd={data.mtd.volume}
           ytd={data.ytd.volume}
         />
         <HeadlineCard
-          label="Paid out to landlords"
-          hint="Rent routed on to Connect accounts"
+          t={t}
+          label={t('finances.headlineLandlordPayouts')}
+          hint={t('finances.headlineLandlordPayoutsHint')}
           mtd={data.mtd.landlordPayouts}
           ytd={data.ytd.landlordPayouts}
         />
       </section>
 
       <p className="-mt-4 text-xs text-muted-foreground">
-        Figures reconcile with the Stripe balance ledger. Net earnings ={' '}
-        gross cut − Stripe fees ({formatEur(data.ytd.stripeFees)} YTD) − refunds
-        ({formatEur(data.ytd.refunds)} YTD).
+        {t('finances.reconcileNote', {
+          stripeFees: formatEur(data.ytd.stripeFees),
+          refunds: formatEur(data.ytd.refunds),
+        })}
       </p>
 
       {/* Charts */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ChartCard
-          title="Net earnings by day"
+          t={t}
+          title={t('finances.chartNetByDay')}
           subtitle={data.monthLabel}
           points={data.daily}
           labelEvery={data.daily.length > 16 ? 5 : 2}
         />
         <ChartCard
-          title="Net earnings by month"
+          t={t}
+          title={t('finances.chartNetByMonth')}
           subtitle={data.yearLabel}
           points={data.monthly}
           labelEvery={1}
@@ -131,28 +139,39 @@ function FinancesBody({ data }: { data: FinanceData }) {
 
       {/* Breakdown by source */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <SourceCard title={`This month · ${data.monthLabel}`} b={data.mtd} />
-        <SourceCard title={`This year · ${data.yearLabel}`} b={data.ytd} />
+        <SourceCard
+          t={t}
+          title={`${t('finances.thisMonth')} · ${data.monthLabel}`}
+          b={data.mtd}
+        />
+        <SourceCard
+          t={t}
+          title={`${t('finances.thisYear')} · ${data.yearLabel}`}
+          b={data.ytd}
+        />
       </section>
 
       {/* Payments trail */}
-      <PaymentsTrail payments={data.payments} />
+      <PaymentsTrail t={t} payments={data.payments} />
 
       <p className="text-xs text-muted-foreground">
-        Generated {dateTimeFormatter.format(data.generatedAt)} · live from
-        Stripe on every load.
+        {t('finances.generated', {
+          datetime: dateTimeFormatter.format(data.generatedAt),
+        })}
       </p>
     </>
   );
 }
 
 function HeadlineCard({
+  t,
   label,
   hint,
   mtd,
   ytd,
   tone = 'neutral',
 }: {
+  t: TFunc;
   label: string;
   hint: string;
   mtd: number;
@@ -176,12 +195,12 @@ function HeadlineCard({
         {formatEur(mtd)}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        This month · {hint}
+        {t('finances.thisMonthHint', { hint })}
       </p>
       <p className="mt-3 border-t border-border pt-2 text-sm text-foreground">
         {formatEur(ytd)}
         <span className="ml-1.5 text-xs text-muted-foreground">
-          year to date
+          {t('finances.yearToDate')}
         </span>
       </p>
     </div>
@@ -189,11 +208,13 @@ function HeadlineCard({
 }
 
 function ChartCard({
+  t,
   title,
   subtitle,
   points,
   labelEvery,
 }: {
+  t: TFunc;
   title: string;
   subtitle: string;
   points: ChartPoint[];
@@ -215,7 +236,7 @@ function ChartCard({
           className="mt-4 flex items-center justify-center rounded-md bg-background text-sm text-muted-foreground"
           style={{ height }}
         >
-          No earnings recorded yet.
+          {t('finances.noEarnings')}
         </div>
       ) : (
         <>
@@ -268,26 +289,34 @@ function ChartCard({
   );
 }
 
-function SourceCard({ title, b }: { title: string; b: MoneyBuckets }) {
+function SourceCard({ t, title, b }: { t: TFunc; title: string; b: MoneyBuckets }) {
   return (
     <div className="rounded-lg border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-foreground">{title}</h2>
       <dl className="mt-4 space-y-4">
         <SourceRow
-          name="Owner subscriptions"
-          meta={`${b.ownerSub.count} payment${b.ownerSub.count === 1 ? '' : 's'} · ${formatEur(b.ownerSub.volume)} billed`}
+          name={t('finances.sourceOwnerSub')}
+          meta={`${
+            b.ownerSub.count === 1
+              ? t('finances.sourcePayment', { count: b.ownerSub.count })
+              : t('finances.sourcePayments', { count: b.ownerSub.count })
+          } · ${t('finances.sourceBilled', { amount: formatEur(b.ownerSub.volume) })}`}
           value={b.ownerSub.net}
-          valueLabel="earned"
+          valueLabel={t('finances.sourceEarned')}
         />
         <SourceRow
-          name="Rent service fees"
-          meta={`${b.rent.count} payment${b.rent.count === 1 ? '' : 's'} · ${formatEur(b.rent.volume)} rent processed`}
+          name={t('finances.sourceRentFees')}
+          meta={`${
+            b.rent.count === 1
+              ? t('finances.sourcePayment', { count: b.rent.count })
+              : t('finances.sourcePayments', { count: b.rent.count })
+          } · ${t('finances.sourceRentProcessed', { amount: formatEur(b.rent.volume) })}`}
           value={b.rent.fees}
-          valueLabel="in fees"
+          valueLabel={t('finances.sourceInFees')}
         />
         <div className="flex items-baseline justify-between border-t border-border pt-3">
           <dt className="text-sm font-semibold text-foreground">
-            Net earnings
+            {t('finances.sourceNetEarnings')}
           </dt>
           <dd className="text-sm font-semibold text-primary">
             {formatEur(b.netEarnings)}
@@ -329,56 +358,55 @@ function SourceRow({
   );
 }
 
-const KIND_BADGE: Record<PaymentKind, { label: string; cls: string }> = {
+const KIND_BADGE: Record<PaymentKind, { cls: string }> = {
   subscription: {
-    label: 'Subscription',
     cls: 'bg-primary/10 text-primary',
   },
-  rent: { label: 'Rent', cls: 'bg-roome-blue/10 text-roome-blue' },
-  other: { label: 'Other', cls: 'bg-secondary text-muted-foreground' },
+  rent: { cls: 'bg-roome-blue/10 text-roome-blue' },
+  other: { cls: 'bg-secondary text-muted-foreground' },
 };
 
 const PAYMENTS_SHOWN = 200;
 
-function PaymentsTrail({ payments }: { payments: PaymentRow[] }) {
+function PaymentsTrail({ t, payments }: { t: TFunc; payments: PaymentRow[] }) {
   const shown = payments.slice(0, PAYMENTS_SHOWN);
   return (
     <section className="rounded-lg border border-border bg-surface">
       <div className="flex items-baseline justify-between gap-3 px-5 py-4">
         <h2 className="text-sm font-semibold text-foreground">
-          Payments — who paid what
+          {t('finances.paymentsTitle')}
         </h2>
         <span className="text-xs text-muted-foreground">
-          {payments.length} this year
+          {t('finances.paymentsThisYear', { count: payments.length })}
           {payments.length > PAYMENTS_SHOWN
-            ? ` · showing ${PAYMENTS_SHOWN}`
+            ? ` ${t('finances.paymentsShowing', { shown: PAYMENTS_SHOWN })}`
             : ''}
         </span>
       </div>
 
       {shown.length === 0 ? (
         <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">
-          No payments recorded this year yet.
+          {t('finances.paymentsEmpty')}
         </p>
       ) : (
         <div className="overflow-x-auto border-t border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-2.5 font-medium">Date</th>
-                <th className="px-5 py-2.5 font-medium">Payer</th>
-                <th className="px-5 py-2.5 font-medium">Type</th>
+                <th className="px-5 py-2.5 font-medium">{t('finances.colDate')}</th>
+                <th className="px-5 py-2.5 font-medium">{t('finances.colPayer')}</th>
+                <th className="px-5 py-2.5 font-medium">{t('finances.colType')}</th>
                 <th className="px-5 py-2.5 text-right font-medium">
-                  Amount paid
+                  {t('finances.colAmountPaid')}
                 </th>
                 <th className="px-5 py-2.5 text-right font-medium">
-                  Roome&apos;s cut
+                  {t('finances.colRoomeCut')}
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {shown.map((p) => (
-                <PaymentRowItem key={p.id} payment={p} />
+                <PaymentRowItem key={p.id} t={t} payment={p} />
               ))}
             </tbody>
           </table>
@@ -388,9 +416,15 @@ function PaymentsTrail({ payments }: { payments: PaymentRow[] }) {
   );
 }
 
-function PaymentRowItem({ payment }: { payment: PaymentRow }) {
+function PaymentRowItem({ t, payment }: { t: TFunc; payment: PaymentRow }) {
   const badge = KIND_BADGE[payment.kind];
-  const name = payment.payerName || payment.payerEmail || 'Unknown payer';
+  const badgeLabel =
+    payment.kind === 'subscription'
+      ? t('finances.badgeSubscription')
+      : payment.kind === 'rent'
+        ? t('finances.badgeRent')
+        : t('finances.badgeOther');
+  const name = payment.payerName || payment.payerEmail || t('finances.unknownPayer');
   return (
     <tr className="text-foreground">
       <td className="whitespace-nowrap px-5 py-3 text-xs text-muted-foreground">
@@ -419,7 +453,7 @@ function PaymentRowItem({ payment }: { payment: PaymentRow }) {
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badge.cls}`}
         >
-          {badge.label}
+          {badgeLabel}
         </span>
       </td>
       <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">

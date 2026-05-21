@@ -3,25 +3,28 @@
 
 import Link from 'next/link';
 import type { FilterValue } from '../_lib/types';
-
-const TABS: { value: FilterValue; label: string }[] = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'all', label: 'All' },
-];
+import type { TFunc } from '@/i18n/t';
 
 export function FilterTabs({
   active,
   counts,
+  t,
 }: {
   active: FilterValue;
   counts: Record<FilterValue, number>;
+  t: TFunc;
 }) {
+  const TABS: { value: FilterValue; label: string }[] = [
+    { value: 'pending', label: t('common.statusPending') },
+    { value: 'approved', label: t('common.statusApproved') },
+    { value: 'rejected', label: t('common.statusRejected') },
+    { value: 'all', label: t('common.all') },
+  ];
+
   return (
     <div
       role="tablist"
-      aria-label="B2B request filters"
+      aria-label={t('supervision.filterAriaLabel')}
       className="inline-flex rounded-lg border border-border bg-surface p-1"
     >
       {TABS.map((tab) => {
