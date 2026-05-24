@@ -17,6 +17,7 @@ import { supervision } from './supervision';
 import { admins } from './admins';
 import { login } from './login';
 import { managed } from './managed';
+import { moderation } from './moderation';
 import { operate } from './operate';
 
 export function buildDictionary(locale: Locale) {
@@ -32,6 +33,7 @@ export function buildDictionary(locale: Locale) {
     admins: admins[locale],
     login: login[locale],
     managed: managed[locale],
+    moderation: moderation[locale],
     operate: operate[locale],
   };
 }

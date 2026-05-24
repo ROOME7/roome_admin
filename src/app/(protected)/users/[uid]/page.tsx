@@ -13,6 +13,7 @@ import { requireAdminSession } from '@/lib/auth';
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
 import { classify, deriveStatus, roleLabel, tsToDate } from '../_lib/user-model';
+import { BlocksPanel } from './_components/blocks-panel';
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -287,6 +288,15 @@ export default async function UserDetailPage({
           </Link>
         </section>
       )}
+
+      <BlocksPanel
+        blocked={Array.isArray(d.blockedUserIds) ? (d.blockedUserIds as string[]) : []}
+        blockedBy={
+          Array.isArray(d.blockedByUserIds) ? (d.blockedByUserIds as string[]) : []
+        }
+        t={t}
+      />
+
 
       {/* Raw documents — guarantees nothing is hidden from the admin. */}
       <details className="rounded-lg border border-border bg-surface">

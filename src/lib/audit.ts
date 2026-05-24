@@ -24,7 +24,10 @@ export type AdminAction =
   | 'notify'
   | 'trigger_connect_onboarding'
   | 'grant_admin'
-  | 'revoke_admin';
+  | 'revoke_admin'
+  | 'report_take_over'
+  | 'report_resolve'
+  | 'report_dismiss';
 
 export interface RecordAdminActionInput {
   adminUid: string;

@@ -70,6 +70,15 @@ function AdminsIcon() {
   );
 }
 
+function ModerationIcon() {
+  return (
+    <Icon>
+      <path d="M4 21V4" />
+      <path d="M4 4h11l-1.5 3L15 10H4" />
+    </Icon>
+  );
+}
+
 function UsersIcon() {
   return (
     <Icon>
@@ -153,6 +162,11 @@ export default async function Sidebar({ user }: SidebarProps) {
           href="/managed"
           label={t('nav.managed')}
           icon={<ManagedIcon />}
+        />
+        <SidebarLink
+          href="/moderation"
+          label={t('nav.moderation')}
+          icon={<ModerationIcon />}
         />
         <SidebarLink
           href="/admins"

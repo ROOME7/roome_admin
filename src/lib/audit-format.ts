@@ -186,6 +186,24 @@ export function formatAdminAction(
             tone: 'neutral',
           };
       }
+    case 'report_take_over':
+      return {
+        title: t('audit.reportTakeOver'),
+        detail: typeof p.reportId === 'string' ? (p.reportId as string) : '',
+        tone: 'neutral',
+      };
+    case 'report_resolve':
+      return {
+        title: t('audit.reportResolve'),
+        detail: typeof p.actionTaken === 'string' ? (p.actionTaken as string) : '',
+        tone: 'positive',
+      };
+    case 'report_dismiss':
+      return {
+        title: t('audit.reportDismiss'),
+        detail: typeof p.actionTaken === 'string' ? (p.actionTaken as string) : '',
+        tone: 'neutral',
+      };
     default:
       return { title: entry.action, detail: '', tone: 'neutral' };
   }

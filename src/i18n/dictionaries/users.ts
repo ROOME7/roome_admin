@@ -95,6 +95,15 @@ const it = {
     "Questo account è gestito per conto del partner da un amministratore.",
   openActiveManagement: 'Apri in Gestione Attiva →',
 
+  // Detail page — blocks panel (App Store 1.2 mutual block)
+  blocksPanelTitle: 'Blocchi reciproci',
+  blocksPanelSubtitle:
+    'Account che questo utente ha bloccato e account che hanno bloccato questo utente. Il blocco è reciproco: nessuna delle due parti vede gli annunci, i messaggi o le recensioni dell\'altra.',
+  blocksOutgoing: 'Bloccati da questo utente',
+  blocksOutgoingEmpty: 'Nessun account bloccato.',
+  blocksIncoming: 'Hanno bloccato questo utente',
+  blocksIncomingEmpty: 'Nessun account ha bloccato questo utente.',
+
   // Detail page — raw documents section
   rawDocuments: 'Documenti grezzi',
   docNotExist: '(il documento non esiste)',
@@ -179,6 +188,14 @@ const en: Record<keyof typeof it, string> = {
   managedAccountInfo:
     "This account is operated on the partner's behalf by an admin.",
   openActiveManagement: 'Open in Active Management →',
+
+  blocksPanelTitle: 'Mutual blocks',
+  blocksPanelSubtitle:
+    'Accounts this user has blocked, and accounts that have blocked this user. Blocking is mutual — neither side sees the other\'s listings, messages, or reviews.',
+  blocksOutgoing: 'Blocked by this user',
+  blocksOutgoingEmpty: 'This user has not blocked anyone.',
+  blocksIncoming: 'Has blocked this user',
+  blocksIncomingEmpty: 'No accounts have blocked this user.',
 
   rawDocuments: 'Raw documents',
   docNotExist: '(document does not exist)',
