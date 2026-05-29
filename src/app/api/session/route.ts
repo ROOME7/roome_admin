@@ -17,7 +17,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { serverAuth } from '@/lib/firebase-admin';
 import { SESSION_COOKIE_NAME } from '@/lib/auth';
 
-const DEFAULT_MAX_AGE_SECONDS = 8 * 60 * 60; // 8 hours
+// Browser-cookie lifetime. Override via SESSION_COOKIE_MAX_AGE_SECONDS env
+// (clamped between 1 minute and Firebase's 14-day max). 24h matches a normal
+// admin workday and avoids forcing re-sign-in after lunch; the 8h default
+// we shipped initially was too aggressive — admins complained that closing
+// the window mid-session bumped them back to /login on the next open.
+const DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60; // 24 hours
 
 function getMaxAgeSeconds(): number {
   const raw = process.env.SESSION_COOKIE_MAX_AGE_SECONDS;
@@ -65,6 +70,14 @@ export async function POST(req: NextRequest) {
   });
 
   const res = NextResponse.json({ ok: true });
+  // IMPORTANT: set both `maxAge` AND `expires`. Some Next.js 16 build paths
+  // (and certain CDN proxies) drop the `Max-Age=` attribute when only
+  // `maxAge` is passed, leaving the browser to treat the result as a
+  // session-only cookie that disappears when the window closes — exactly
+  // the bug admins were hitting. The two attributes together survive that
+  // round-trip: browsers prefer `Max-Age` per RFC 6265 and fall back to
+  // `Expires` if it's missing.
+  const expires = new Date(Date.now() + maxAgeSeconds * 1000);
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: sessionCookie,
@@ -73,6 +86,7 @@ export async function POST(req: NextRequest) {
     sameSite: 'strict',
     path: '/',
     maxAge: maxAgeSeconds,
+    expires,
   });
   return res;
 }
@@ -97,6 +111,9 @@ export async function DELETE() {
     // best-effort; the important thing is clearing the cookie below.
   }
 
+  // Mirror the same maxAge + expires pair so the clear instruction can't be
+  // misinterpreted as a session cookie either — `expires` in the past
+  // forces immediate deletion.
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: '',
@@ -105,6 +122,7 @@ export async function DELETE() {
     sameSite: 'strict',
     path: '/',
     maxAge: 0,
+    expires: new Date(0),
   });
   return res;
 }
