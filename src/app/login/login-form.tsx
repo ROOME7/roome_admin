@@ -83,9 +83,14 @@ export default function LoginForm({
       }
 
       // 4. Exchange the ID token for an httpOnly session cookie.
+      //    `credentials: 'include'` is redundant on a same-origin POST per
+      //    spec, but some Chrome extensions / privacy plugins inject a
+      //    stricter default and silently drop the response's Set-Cookie
+      //    header. Being explicit costs nothing and rules that out.
       const idToken = tokenResult.token;
       const res = await fetch('/api/session', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ idToken }),
       });
@@ -110,8 +115,9 @@ export default function LoginForm({
         </label>
         <input
           id="email"
+          name="email"
           type="email"
-          autoComplete="email"
+          autoComplete="username"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -126,6 +132,7 @@ export default function LoginForm({
         </label>
         <input
           id="password"
+          name="password"
           type="password"
           autoComplete="current-password"
           required
