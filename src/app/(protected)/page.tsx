@@ -21,13 +21,33 @@ import {
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
 
-async function loadCounts(): Promise<{
+type Counts = {
   pendingB2b: number;
   managed: number;
   suspended: number;
   tenants: number;
   landlords: number;
-}> {
+  activeListings: number;
+  properties: number;
+  activeTenancies: number;
+  pendingApplications: number;
+  openReports: number;
+};
+
+const EMPTY_COUNTS: Counts = {
+  pendingB2b: 0,
+  managed: 0,
+  suspended: 0,
+  tenants: 0,
+  landlords: 0,
+  activeListings: 0,
+  properties: 0,
+  activeTenancies: 0,
+  pendingApplications: 0,
+  openReports: 0,
+};
+
+async function loadCounts(): Promise<Counts> {
   const db = serverDb();
   // count() aggregations in parallel — each is a single round-trip that
   // returns just the integer, no doc bodies. Cheap.
@@ -36,12 +56,26 @@ async function loadCounts(): Promise<{
   // 'owner') — written by the Flutter signup flow on every account, so
   // it's the reliable discriminator. "Landlords of all types" = every
   // owner, B2C and B2B alike (ownerType only splits them further).
+  //
+  // Marketplace / contracts / moderation counters reuse the same statuses
+  // the rest of the panel writes:
+  //   - listings.status: 'active' | 'paused' | 'archived' — 'active' = live
+  //     on the marketplace (kept in sync by the syncListing* Cloud Functions).
+  //   - contracts.status: 'active' (live tenancy) | 'pending' (application
+  //     awaiting the landlord) | 'cancelled'.
+  //   - reports.status: 'open' (unactioned moderation queue) | 'reviewing' |
+  //     'resolved' | 'dismissed'.
   const [
     pendingB2bSnap,
     managedSnap,
     suspendedSnap,
     tenantsSnap,
     landlordsSnap,
+    activeListingsSnap,
+    propertiesSnap,
+    activeTenanciesSnap,
+    pendingApplicationsSnap,
+    openReportsSnap,
   ] = await Promise.all([
     db
       .collection('b2bOwnerRequests')
@@ -56,6 +90,11 @@ async function loadCounts(): Promise<{
       .get(),
     db.collection('users').where('role', '==', 'tenant').count().get(),
     db.collection('users').where('role', '==', 'owner').count().get(),
+    db.collection('listings').where('status', '==', 'active').count().get(),
+    db.collection('properties').count().get(),
+    db.collection('contracts').where('status', '==', 'active').count().get(),
+    db.collection('contracts').where('status', '==', 'pending').count().get(),
+    db.collection('reports').where('status', '==', 'open').count().get(),
   ]);
   return {
     pendingB2b: pendingB2bSnap.data().count,
@@ -63,6 +102,11 @@ async function loadCounts(): Promise<{
     suspended: suspendedSnap.data().count,
     tenants: tenantsSnap.data().count,
     landlords: landlordsSnap.data().count,
+    activeListings: activeListingsSnap.data().count,
+    properties: propertiesSnap.data().count,
+    activeTenancies: activeTenanciesSnap.data().count,
+    pendingApplications: pendingApplicationsSnap.data().count,
+    openReports: openReportsSnap.data().count,
   };
 }
 
@@ -84,9 +128,7 @@ export default async function DashboardPage() {
     getRecentAdminActions(20),
   ]);
   const counts =
-    countsResult.status === 'fulfilled'
-      ? countsResult.value
-      : { pendingB2b: 0, managed: 0, suspended: 0, tenants: 0, landlords: 0 };
+    countsResult.status === 'fulfilled' ? countsResult.value : EMPTY_COUNTS;
   const activity: AdminActionEntry[] =
     activityResult.status === 'fulfilled' ? activityResult.value : [];
 
@@ -101,7 +143,7 @@ export default async function DashboardPage() {
         </p>
       </header>
 
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label={t('dashboard.statTotalTenants')}
           value={counts.tenants}
@@ -113,6 +155,32 @@ export default async function DashboardPage() {
           value={counts.landlords}
           href="/users?role=landlord"
           tone="neutral"
+        />
+        <StatCard
+          label={t('dashboard.statActiveListings')}
+          value={counts.activeListings}
+          tone="neutral"
+        />
+        <StatCard
+          label={t('dashboard.statTotalProperties')}
+          value={counts.properties}
+          tone="neutral"
+        />
+        <StatCard
+          label={t('dashboard.statActiveTenancies')}
+          value={counts.activeTenancies}
+          tone="neutral"
+        />
+        <StatCard
+          label={t('dashboard.statPendingApplications')}
+          value={counts.pendingApplications}
+          tone={counts.pendingApplications > 0 ? 'attention' : 'neutral'}
+        />
+        <StatCard
+          label={t('dashboard.statOpenReports')}
+          value={counts.openReports}
+          href="/moderation?filter=open"
+          tone={counts.openReports > 0 ? 'warning' : 'neutral'}
         />
         <StatCard
           label={t('dashboard.statPendingB2b')}
@@ -170,7 +238,9 @@ function StatCard({
 }: {
   label: string;
   value: number;
-  href: string;
+  // Some counters (marketplace / contracts metrics) have no dedicated admin
+  // page to drill into yet — those render as a plain, non-clickable card.
+  href?: string;
   tone: 'neutral' | 'attention' | 'warning';
 }) {
   const ring =
@@ -179,15 +249,22 @@ function StatCard({
       : tone === 'warning'
         ? 'ring-1 ring-amber-500/30 bg-amber-500/5'
         : 'ring-1 ring-transparent';
-  return (
-    <Link
-      href={href}
-      className={`block rounded-lg border border-border bg-surface p-5 transition-colors hover:bg-secondary/30 ${ring}`}
-    >
+  const base = `block rounded-lg border border-border bg-surface p-5 ${ring}`;
+  const body = (
+    <>
       <p className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
       <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+    </>
+  );
+
+  if (!href) {
+    return <div className={base}>{body}</div>;
+  }
+  return (
+    <Link href={href} className={`${base} transition-colors hover:bg-secondary/30`}>
+      {body}
     </Link>
   );
 }
