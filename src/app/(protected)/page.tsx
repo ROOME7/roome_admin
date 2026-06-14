@@ -20,6 +20,7 @@ import {
 } from '@/lib/audit-format';
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
+import { DashboardMap, type MapMarker } from './_components/dashboard-map';
 
 type Counts = {
   pendingB2b: number;
@@ -110,6 +111,50 @@ async function loadCounts(): Promise<Counts> {
   };
 }
 
+// Map markers — one per property that has real coordinates. Listings derive
+// from properties but DON'T carry lat/lng (see the syncListing* Cloud
+// Functions), so the property doc is the only source of coordinates. The
+// dataset is small (tens of docs); we read the collection and filter in
+// memory rather than maintaining a geo-index. Full per-pin detail (photos,
+// rooms, owner) is lazy-loaded on tap via the getListingDetail server action.
+async function loadMapMarkers(): Promise<MapMarker[]> {
+  const db = serverDb();
+  const snap = await db.collection('properties').get();
+  const markers: MapMarker[] = [];
+  for (const doc of snap.docs) {
+    const d = doc.data() ?? {};
+    if (d.deletedAt) continue;
+    const lat =
+      typeof d.latitude === 'number' && Number.isFinite(d.latitude)
+        ? d.latitude
+        : null;
+    const lng =
+      typeof d.longitude === 'number' && Number.isFinite(d.longitude)
+        ? d.longitude
+        : null;
+    if (lat === null || lng === null) continue;
+
+    const street = typeof d.address === 'string' ? d.address : '';
+    const civic = typeof d.civic === 'string' ? d.civic : '';
+    const city = typeof d.city === 'string' ? d.city : '';
+    const label =
+      [[street, civic].filter(Boolean).join(' '), city]
+        .filter(Boolean)
+        .join(', ') || doc.id;
+
+    markers.push({
+      id: doc.id,
+      lat,
+      lng,
+      kind: 'listing',
+      label,
+      price: typeof d.lowestPrice === 'number' ? d.lowestPrice : 0,
+      onMarket: d.isOnMarket !== false,
+    });
+  }
+  return markers;
+}
+
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
   month: 'short',
@@ -123,26 +168,21 @@ export default async function DashboardPage() {
   // Best-effort: if counts or activity fail (e.g. fresh deploy with no
   // collections yet), surface a neutral state rather than blowing up the
   // page.
-  const [countsResult, activityResult] = await Promise.allSettled([
-    loadCounts(),
-    getRecentAdminActions(20),
-  ]);
+  const [countsResult, activityResult, markersResult] =
+    await Promise.allSettled([
+      loadCounts(),
+      getRecentAdminActions(20),
+      loadMapMarkers(),
+    ]);
   const counts =
     countsResult.status === 'fulfilled' ? countsResult.value : EMPTY_COUNTS;
   const activity: AdminActionEntry[] =
     activityResult.status === 'fulfilled' ? activityResult.value : [];
+  const markers: MapMarker[] =
+    markersResult.status === 'fulfilled' ? markersResult.value : [];
 
   return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          {t('dashboard.title')}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('dashboard.subtitle')}
-        </p>
-      </header>
-
+    <div className="space-y-6">
       <section className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label={t('dashboard.statTotalTenants')}
@@ -201,6 +241,8 @@ export default async function DashboardPage() {
           tone={counts.suspended > 0 ? 'warning' : 'neutral'}
         />
       </section>
+
+      <DashboardMap markers={markers} />
 
       <section className="rounded-lg border border-border bg-surface p-6">
         <div className="flex items-baseline justify-between gap-3">
