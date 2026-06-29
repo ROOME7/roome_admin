@@ -9,9 +9,9 @@ import { searchPlaces, createServiceableArea } from "../actions";
 import { useT } from "@/i18n/client";
 import type { PlaceCandidate } from "@/lib/serviceable-areas";
 
-export function AddArea() {
+export function AddArea({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlaceCandidate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +38,6 @@ export function AddArea() {
     startAdd(async () => {
       const res = await createServiceableArea(c);
       if (res.ok) {
-        // Drop the added one from the candidate list; revalidatePath refreshes
-        // the page's area list on the server.
         setResults((prev) => prev?.filter((x) => x.slug !== c.slug) ?? null);
       } else {
         setError(res.error);
@@ -53,7 +51,7 @@ export function AddArea() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark"
       >
         {t("serviceableAreas.addBtn")}
       </button>
@@ -61,11 +59,26 @@ export function AddArea() {
   }
 
   return (
-    <div className="flex w-full max-w-md flex-col gap-2 rounded-lg border border-border bg-surface p-3">
-      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {t("serviceableAreas.addTitle")}
-      </label>
-      <div className="flex gap-2">
+    <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">
+          {t("serviceableAreas.addTitle")}
+        </h2>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setQuery("");
+            setResults(null);
+            setError(null);
+          }}
+          className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {t("common.cancel")}
+        </button>
+      </div>
+
+      <div className="mt-3 flex gap-2">
         <input
           type="text"
           autoComplete="off"
@@ -79,72 +92,89 @@ export function AddArea() {
           }}
           disabled={searching}
           placeholder={t("serviceableAreas.searchPlaceholder")}
-          className="flex-1 rounded-md border border-input bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+          className="flex-1 rounded-md border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
         />
         <button
           type="button"
           onClick={runSearch}
           disabled={searching || query.trim().length < 2}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
         >
           {searching ? t("serviceableAreas.searching") : t("serviceableAreas.search")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(false);
-            setQuery("");
-            setResults(null);
-            setError(null);
-          }}
-          className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          {t("common.cancel")}
         </button>
       </div>
 
       {error && (
         <p
           role="alert"
-          className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+          className="mt-3 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
         >
           {error}
         </p>
       )}
 
       {results && results.length === 0 && !searching && (
-        <p className="px-1 py-1 text-xs text-muted-foreground">
+        <p className="mt-3 text-xs text-muted-foreground">
           {t("serviceableAreas.noResults")}
         </p>
       )}
 
       {results && results.length > 0 && (
-        <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
-          {results.map((c) => (
-            <li
-              key={c.slug}
-              className="flex items-center gap-3 px-3 py-2 text-sm"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-foreground">{c.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {c.displayName}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => add(c)}
-                disabled={adding}
-                className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
+        <ul className="mt-3 max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">
+          {results.map((c) => {
+            const region =
+              [c.province, c.region].filter(Boolean).join(" · ") ||
+              c.displayName;
+            return (
+              <li
+                key={`${c.slug}-${c.osmId ?? ""}`}
+                className="flex items-center gap-3 px-3 py-2.5 text-sm"
               >
-                {adding && addingSlug === c.slug
-                  ? t("serviceableAreas.adding")
-                  : t("serviceableAreas.add")}
-              </button>
-            </li>
-          ))}
+                <span className="text-muted-foreground" aria-hidden>
+                  <PinIcon />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-foreground">
+                    {c.name}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {region}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => add(c)}
+                  disabled={adding}
+                  className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-roome-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {adding && addingSlug === c.slug
+                    ? t("serviceableAreas.adding")
+                    : t("serviceableAreas.add")}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
   );
 }

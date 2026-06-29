@@ -72,27 +72,48 @@ async function loadAreas(): Promise<ServiceableArea[]> {
   });
 }
 
+function BigPin() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-10 w-10 opacity-50"
+      aria-hidden="true"
+    >
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
 export default async function ServiceableAreasPage() {
   await requireAdminSession();
   const [t, areas] = await Promise.all([getT(), loadAreas()]);
   const activeCount = areas.filter((a) => a.active).length;
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-3xl space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             {t("serviceableAreas.title")}
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {t("serviceableAreas.subtitle")}
           </p>
         </div>
-        <AddArea />
+        {areas.length > 0 && <AddArea />}
       </header>
 
+      {areas.length === 0 && <AddArea defaultOpen />}
+
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {t("serviceableAreas.listTitle", {
             active: activeCount,
             total: areas.length,
@@ -100,9 +121,14 @@ export default async function ServiceableAreasPage() {
         </h2>
 
         {areas.length === 0 ? (
-          <p className="mt-3 rounded-lg border border-dashed border-border bg-surface p-6 text-sm text-muted-foreground">
-            {t("serviceableAreas.empty")}
-          </p>
+          <div className="mt-3 flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface px-6 py-12 text-center">
+            <span className="text-muted-foreground" aria-hidden>
+              <BigPin />
+            </span>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {t("serviceableAreas.empty")}
+            </p>
+          </div>
         ) : (
           <ul className="mt-3 space-y-2">
             {areas.map((a) => (

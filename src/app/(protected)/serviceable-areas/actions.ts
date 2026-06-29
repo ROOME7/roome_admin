@@ -41,6 +41,7 @@ interface OsmResult {
   type?: string;
   addresstype?: string;
   place_rank?: number;
+  importance?: number;
   name?: string;
   display_name: string;
   lat: string;
@@ -49,18 +50,13 @@ interface OsmResult {
   address?: Record<string, string>;
 }
 
+// Keep only actual settlements. We match on `addresstype` (city/town/village/…)
+// rather than place_rank so province/region boundaries (addresstype 'county',
+// 'state') are excluded — otherwise searching "Milano" also surfaces the
+// Metropolitan City of Milan, which isn't something a tenant picks.
 function isSettlement(r: OsmResult): boolean {
   if (r.addresstype && SETTLEMENT_TYPES.has(r.addresstype)) return true;
   if (r.category === "place" && r.type && SETTLEMENT_TYPES.has(r.type))
-    return true;
-  // Administrative boundaries at city/town rank (place_rank ~12–18).
-  if (
-    r.category === "boundary" &&
-    r.type === "administrative" &&
-    typeof r.place_rank === "number" &&
-    r.place_rank >= 12 &&
-    r.place_rank <= 18
-  )
     return true;
   return false;
 }
@@ -128,14 +124,22 @@ export async function searchPlaces(
     });
     if (!res.ok) return { ok: false, error: `OSM lookup failed (${res.status}).` };
     const raw = (await res.json()) as OsmResult[];
+    // Best matches first (OSM importance), then dedupe distinct OSM places.
+    const settlements = raw
+      .filter(isSettlement)
+      .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
+    // Dedupe by name+province (not osm_id): OSM often returns the city plus a
+    // same-named hamlet in the same province, which look identical to the
+    // admin. Sorted by importance, so the real city (kept first) wins.
     const seen = new Set<string>();
     const candidates: PlaceCandidate[] = [];
-    for (const r of raw) {
-      if (!isSettlement(r)) continue;
+    for (const r of settlements) {
       const c = toCandidate(r);
-      if (!c.slug || seen.has(c.slug)) continue;
-      if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
-      seen.add(c.slug);
+      if (!c.slug || !Number.isFinite(c.lat) || !Number.isFinite(c.lng))
+        continue;
+      const key = `${c.slug}|${c.province}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       candidates.push(c);
     }
     return { ok: true, data: candidates };
@@ -160,10 +164,28 @@ export async function createServiceableArea(
   if (!slug) return { ok: false, error: "Could not derive a slug for this place." };
 
   const db = serverDb();
-  const ref = db.collection("serviceableAreas").doc(slug);
+  // Default doc id is the slug. If a *different* place already holds that slug
+  // (same name, different province — common in Italy), disambiguate with the
+  // province code so both can coexist and ids stay stable.
+  let areaId = slug;
+  let ref = db.collection("serviceableAreas").doc(areaId);
   const existing = await ref.get();
   if (existing.exists) {
-    return { ok: false, error: `"${candidate.name}" is already in the list.` };
+    const sameOsm =
+      candidate.osmId != null &&
+      (existing.data()?.osm as { id?: number } | undefined)?.id ===
+        candidate.osmId;
+    if (sameOsm) {
+      return { ok: false, error: `"${candidate.name}" is already in the list.` };
+    }
+    const suffix = candidate.province
+      ? candidate.province.toLowerCase()
+      : String(candidate.osmId ?? Date.now());
+    areaId = `${slug}-${suffix}`;
+    ref = db.collection("serviceableAreas").doc(areaId);
+    if ((await ref.get()).exists) {
+      return { ok: false, error: `"${candidate.name}" is already in the list.` };
+    }
   }
 
   const countSnap = await db.collection("serviceableAreas").count().get();
