@@ -97,6 +97,15 @@ function FinancesIcon() {
   );
 }
 
+function ServiceableAreasIcon() {
+  return (
+    <Icon>
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </Icon>
+  );
+}
+
 // Brand mark — Roome wordmark with a roome-blue square. Drop in real
 // artwork later by swapping this element; the colors come from the
 // design tokens so they stay aligned with the marketing site / app.
@@ -162,6 +171,11 @@ export default async function Sidebar({ user }: SidebarProps) {
           href="/managed"
           label={t('nav.managed')}
           icon={<ManagedIcon />}
+        />
+        <SidebarLink
+          href="/serviceable-areas"
+          label={t('nav.serviceableAreas')}
+          icon={<ServiceableAreasIcon />}
         />
         <SidebarLink
           href="/moderation"

@@ -19,6 +19,7 @@ import { login } from './login';
 import { managed } from './managed';
 import { moderation } from './moderation';
 import { operate } from './operate';
+import { serviceableAreas } from './serviceable-areas';
 
 export function buildDictionary(locale: Locale) {
   return {
@@ -35,6 +36,7 @@ export function buildDictionary(locale: Locale) {
     managed: managed[locale],
     moderation: moderation[locale],
     operate: operate[locale],
+    serviceableAreas: serviceableAreas[locale],
   };
 }
 
