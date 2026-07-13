@@ -24,12 +24,9 @@ const PUBLIC_PATHS = [
   '/api/session',
   '/_next',
   '/favicon.ico',
-  // Stripe redirect landing pages under /stripe/* — partners (no admin
-  // session) get bounced here by Stripe Checkout, Customer Portal, and
-  // Connect Account Links, so they must render without an admin cookie.
-  // Covers: /stripe/subscription/{success,cancel,portal-return},
-  //         /stripe/connect/{return,refresh}.
-  '/stripe',
+  // NOTE: the public Stripe redirect landing pages (/stripe/*) were moved to
+  // the listings site (listings.roomeapp.it/stripe/*) in 2026-07, so no
+  // /stripe allowlist entry is needed here anymore.
 ];
 
 export function proxy(req: NextRequest) {

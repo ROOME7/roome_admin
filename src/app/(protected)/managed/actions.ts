@@ -1097,16 +1097,15 @@ export async function triggerConnectOnboarding(
     };
   }
 
-  // Default to the public landing pages we ship at the admin domain under
-  // /stripe/connect/* — see src/app/stripe/connect/{return,refresh}/page.tsx.
-  // Override via env to point at a different deployment (preview /
-  // staging / etc.).
+  // Default to the public Connect landing pages, now hosted on the LISTINGS
+  // site (listings.roomeapp.it/stripe/connect/*) — moved off the admin domain
+  // 2026-07. Override via env for a preview/staging deployment.
   const refreshUrl =
     process.env.STRIPE_CONNECT_REFRESH_URL ||
-    'https://roome-admin.vercel.app/stripe/connect/refresh';
+    'https://listings.roomeapp.it/stripe/connect/refresh';
   const returnUrl =
     process.env.STRIPE_CONNECT_RETURN_URL ||
-    'https://roome-admin.vercel.app/stripe/connect/return';
+    'https://listings.roomeapp.it/stripe/connect/return';
 
   const stripe = serverStripe();
 
