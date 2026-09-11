@@ -3,19 +3,19 @@
 // Client-side sign-in form.
 //
 // Flow:
-//   1. signInWithEmailAndPassword (Firebase Auth — client SDK)
-//   2. Force-refresh the ID token (true arg) so the latest custom claims
-//      are present. Just-promoted admins won't have the claim in their
-//      old cached token; this re-fetch picks it up.
-//   3. Read claims locally; if no 'admin' role, sign out + show error.
-//   4. POST the ID token to /api/session to mint the httpOnly session cookie.
-//   5. Navigate to the requested redirect path.
+//   1. POST the credentials to /api/session.
+//   2. That route calls the Roome API server-side and stores the tokens in
+//      httpOnly cookies this page cannot read.
+//   3. Navigate to the requested redirect path.
+//
+// ⚠️ NO PASSWORD OR TOKEN IS HANDLED BY THIS COMPONENT BEYOND THE POST. The
+// previous version signed in with the Firebase client SDK, read the `roles`
+// custom claim in the browser and decided locally whether the account was an
+// admin. The role is now decided by the API, which refuses a non-admin before
+// a session exists — a check in the browser is a suggestion.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { FirebaseError } from 'firebase/app';
-import { adminAuth } from '@/lib/firebase-client';
 import { useT } from '@/i18n/client';
 
 export default function LoginForm({
@@ -31,23 +31,31 @@ export default function LoginForm({
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  function errorMessageFor(error: unknown): string {
-    if (error instanceof FirebaseError) {
-      switch (error.code) {
-        case 'auth/invalid-email':
-        case 'auth/invalid-credential':
-        case 'auth/wrong-password':
-        case 'auth/user-not-found':
-          return t('login.errInvalidCredential');
-        case 'auth/too-many-requests':
-          return t('login.errTooManyAttempts');
-        case 'auth/network-request-failed':
-          return t('login.errNetwork');
-        default:
-          return error.message;
-      }
+  /**
+   * An API error code, in the panel's own words.
+   *
+   * ⚠️ `invalid_credentials` COVERS "NOT AN ADMIN" TOO, and that is not a gap
+   * in this map. The API answers the same thing for a wrong password, an
+   * unknown address and a real password on a non-admin account — a distinct
+   * error for the last would confirm both that the account exists and that the
+   * password just tried was correct.
+   */
+  function messageForCode(code: string, fallback?: string | null): string {
+    switch (code) {
+      case 'invalid_credentials':
+      case 'missing_credentials':
+        return t('login.errInvalidCredential');
+      case 'rate_limited':
+        return t('login.errTooManyAttempts');
+      case 'network_error':
+        return t('login.errNetwork');
+      case 'account_suspended':
+        // No dedicated string, and the API's own message says it plainly in
+        // the reader's language — better than a vaguer one of ours.
+        return fallback ?? t('login.errSignInFailed');
+      default:
+        return fallback ?? t('login.errSignInFailed');
     }
-    return error instanceof Error ? error.message : t('login.errSignInFailed');
   }
 
   const ERROR_COPY: Record<string, string> = {
@@ -65,44 +73,29 @@ export default function LoginForm({
     setSubmitting(true);
 
     try {
-      // 1. Sign in via Firebase Auth.
-      const cred = await signInWithEmailAndPassword(adminAuth, email.trim(), password);
-
-      // 2. Force-refresh the ID token to pick up the latest claims.
-      const tokenResult = await cred.user.getIdTokenResult(true);
-      const roles = Array.isArray(tokenResult.claims.roles)
-        ? (tokenResult.claims.roles as string[])
-        : [];
-
-      // 3. Admin gate. Sign out + error if the account doesn't qualify.
-      if (!roles.includes('admin')) {
-        await signOut(adminAuth);
-        setError(t('login.errNotAdminContact'));
-        setSubmitting(false);
-        return;
-      }
-
-      // 4. Exchange the ID token for an httpOnly session cookie.
-      //    `credentials: 'include'` is redundant on a same-origin POST per
-      //    spec, but some Chrome extensions / privacy plugins inject a
-      //    stricter default and silently drop the response's Set-Cookie
-      //    header. Being explicit costs nothing and rules that out.
-      const idToken = tokenResult.token;
+      // `credentials: 'include'` is redundant on a same-origin POST per spec,
+      // but some extensions inject a stricter default and silently drop the
+      // response's Set-Cookie header. Being explicit rules that out.
       const res = await fetch('/api/session', {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
+
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? t('login.errSessionFailed', { status: String(res.status) }));
+        setError(messageForCode(String(data?.error ?? ''), data?.message));
+        setSubmitting(false);
+        return;
       }
 
-      // 5. Navigate. router.replace so /login isn't in the back history.
+      // router.replace so /login is not left in the back history.
       router.replace(redirectPath);
-    } catch (err) {
-      setError(errorMessageFor(err));
+    } catch {
+      // Only a genuine transport failure reaches here — the handler above
+      // turns every API refusal into a rendered message.
+      setError(t('login.errNetwork'));
       setSubmitting(false);
     }
   }

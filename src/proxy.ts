@@ -2,8 +2,10 @@
 // presence-only check on the session cookie.
 //
 // We deliberately do NOT verify the cookie here because:
-//   - firebase-admin uses Node-only modules, can't run on Edge
-//   - Verifying via JWKS in middleware adds latency to every request
+//   - verifying means a round trip to the API on every request, including
+//     every static asset that slips past the matcher
+//   - a presence check cannot be fooled into thinking you are an admin: the
+//     real check happens on the next hop, in the protected layout
 //
 // Authoritative verification (cookie validity, admin role, revocation check)
 // happens in the protected layout's Server Component — see
@@ -15,7 +17,8 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 
-const SESSION_COOKIE_NAME = '__session';
+// Must match ACCESS_COOKIE in lib/session.ts.
+const SESSION_COOKIE_NAME = 'roome_admin_at';
 
 // Paths that DON'T require a session: the login page itself, the session API
 // (used for sign-in), Next.js internals, and public assets.
