@@ -2,29 +2,26 @@
 
 // Server Actions for the Supervision (B2B approval) flow.
 //
-// SECURITY MODEL (read carefully before editing):
-//   1. Every action re-verifies the admin session via requireAdminSession().
-//      The (protected)/layout already does this on page load, but Server
-//      Actions are a separate entry point that the browser can theoretically
-//      call directly with a forged FormData. So we re-check.
-//   2. Inputs come from FormData — bind() pre-fills the requestId server-side
-//      so the client cannot tamper with which doc it's acting on.
-//   3. All writes go through firebase-admin, which bypasses Firestore Rules.
-//      That's exactly why we re-verify in step (1) — the security boundary
-//      is the Next.js server, not the Firestore Rules.
-//   4. Pre-flight checks: the request must exist and still be 'pending'.
-//      We refuse anything else with a clear error.
-//   5. Atomic batch: b2bOwnerRequests + users mirror update + Auth custom
-//      claim are all bound together. If the claim update fails we log it but
-//      don't roll back the doc writes (matches the existing Cloud Function
-//      behavior; a follow-up reconciliation job can sync claims if needed).
-//   6. revalidatePath at the end so the list re-fetches with the new state.
+// SECURITY MODEL:
+//   1. Every action re-verifies the admin session. The (protected) layout
+//      gates the page, but a Server Action is a separate entry point.
+//   2. requestId is bound server-side via .bind(), so the client cannot
+//      retarget which application it is deciding.
+//   3. THE REAL BOUNDARY IS THE API, which re-checks the role. When this file
+//      wrote through firebase-admin it bypassed every rule, and the session
+//      check here was all that stood between a visitor and the database.
+//
+// ⚠️ ONE WRITE, NOT FOUR. Approving used to update the request document,
+// mirror `b2bApprovalStatus` onto the user, and set a Firebase custom claim —
+// three stores that disagreed in production (twelve accounts carried the claim
+// while four request records said approved). The API writes one row, audits it
+// in the same transaction, emails the applicant, and on a rejection revokes
+// their sessions immediately — none of which this file could do.
 
 import 'server-only';
 import { revalidatePath } from 'next/cache';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { requireAdminSession } from '@/lib/auth';
-import { serverAuth, serverDb } from '@/lib/firebase-admin';
+import { apiAuthed, ApiCallError, AuthRequiredError } from '@/lib/session';
 
 const MAX_NOTES_LENGTH = 2_000;
 
@@ -35,80 +32,26 @@ function clampString(input: FormDataEntryValue | null, max: number): string {
   return input.trim().slice(0, max);
 }
 
-async function setB2bDecision(
+async function decide(
   requestId: string,
-  decision: 'approved' | 'rejected',
+  decision: 'approve' | 'reject',
   notes: string | null,
-  adminUid: string
 ): Promise<ActionResult> {
-  if (!requestId || typeof requestId !== 'string') {
-    return { ok: false, error: 'Missing request id.' };
-  }
+  if (!requestId) return { ok: false, error: 'Missing request id.' };
 
-  const db = serverDb();
-  const auth = serverAuth();
-  const requestRef = db.collection('b2bOwnerRequests').doc(requestId);
-
-  // Read first to validate state. This read also asserts the doc exists.
-  const snap = await requestRef.get();
-  if (!snap.exists) {
-    return { ok: false, error: 'Request not found.' };
-  }
-  const data = snap.data() ?? {};
-  if (data.status !== 'pending') {
-    return {
-      ok: false,
-      error: `Request is already ${String(data.status)}; nothing to do.`,
-    };
-  }
-  const ownerUid = data.ownerUid as string | undefined;
-  if (!ownerUid) {
-    return { ok: false, error: 'Request is malformed (missing ownerUid).' };
-  }
-
-  // Atomic mirror: b2bOwnerRequests + users/{ownerUid}. We don't include the
-  // Auth claim update in the batch because that lives outside Firestore — we
-  // call it after the commit succeeds.
-  const now = Timestamp.now();
-  const batch = db.batch();
-
-  batch.update(requestRef, {
-    status: decision,
-    notes: notes ?? null,
-    reviewedByAdminUid: adminUid,
-    reviewedAt: now,
-  });
-
-  batch.set(
-    db.collection('users').doc(ownerUid),
-    {
-      b2bApprovalStatus: decision,
-      b2bApprovedAt: decision === 'approved' ? now : null,
-      b2bApprovedByAdminUid: decision === 'approved' ? adminUid : null,
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  await batch.commit();
-
-  // Mirror b2bApproved onto custom claims so Firestore Rules + Flutter app
-  // can gate listing creation on it. Preserve any other claims (roles etc.)
-  // — never overwrite the whole claims object.
   try {
-    const userRecord = await auth.getUser(ownerUid);
-    const existingClaims = userRecord.customClaims ?? {};
-    await auth.setCustomUserClaims(ownerUid, {
-      ...existingClaims,
-      b2bApproved: decision === 'approved',
+    await apiAuthed(`/admin/b2b-requests/${encodeURIComponent(requestId)}/${decision}`, {
+      method: 'POST',
+      body: JSON.stringify(notes ? { notes } : {}),
     });
   } catch (err) {
-    // Non-fatal — the doc + mirror already reflect the decision. A
-    // periodic reconciler can re-sync claims if this fails. Log loudly.
-    console.error(
-      `[supervision] Failed to update b2bApproved claim for ${ownerUid}:`,
-      err
-    );
+    if (err instanceof AuthRequiredError) throw err;
+    if (err instanceof ApiCallError) {
+      // `b2b_already_decided` is the one worth its own line: it means a
+      // colleague got there first, not that anything went wrong.
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   revalidatePath('/supervision');
@@ -117,26 +60,24 @@ async function setB2bDecision(
 
 export async function approveB2bRequest(
   requestId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionResult> {
-  const session = await requireAdminSession();
+  await requireAdminSession();
   const notes = clampString(formData.get('notes'), MAX_NOTES_LENGTH) || null;
-  return setB2bDecision(requestId, 'approved', notes, session.uid);
+  return decide(requestId, 'approve', notes);
 }
 
 export async function rejectB2bRequest(
   requestId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionResult> {
-  const session = await requireAdminSession();
-  // Rejection reason is mandatory — surface it in the request log so the
-  // owner (and any future support escalations) know WHY they were rejected.
+  await requireAdminSession();
+  // The applicant is shown this text verbatim, so a bare rejection is not
+  // useful to them. The API refuses one too; this says so without a round
+  // trip.
   const reason = clampString(formData.get('reason'), MAX_NOTES_LENGTH);
   if (reason.length < 3) {
-    return {
-      ok: false,
-      error: 'Please provide a rejection reason (3+ characters).',
-    };
+    return { ok: false, error: 'Please provide a rejection reason (3+ characters).' };
   }
-  return setB2bDecision(requestId, 'rejected', reason, session.uid);
+  return decide(requestId, 'reject', reason);
 }

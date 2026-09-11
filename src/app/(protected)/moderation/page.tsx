@@ -70,16 +70,21 @@ async function loadReports(
 
   if (!res) return { list: [], counts: EMPTY_COUNTS, nextCursor: null };
 
+  // `counts` arrived with a later deploy than the queue itself; zeroes in the
+  // tabs beat a page that throws because one field is missing.
+  const c = res.counts;
   return {
     list: res.items.map(mapApiReport),
-    counts: {
-      open: res.counts.open,
-      reviewing: res.counts.reviewing,
-      // The tab is called "resolved" here and `actioned` on the wire.
-      resolved: res.counts.actioned,
-      dismissed: res.counts.dismissed,
-      all: res.counts.all,
-    },
+    counts: c
+      ? {
+          open: c.open,
+          reviewing: c.reviewing,
+          // The tab is called "resolved" here and `actioned` on the wire.
+          resolved: c.actioned,
+          dismissed: c.dismissed,
+          all: c.all,
+        }
+      : EMPTY_COUNTS,
     nextCursor: res.page.hasMore ? res.page.cursor : null,
   };
 }

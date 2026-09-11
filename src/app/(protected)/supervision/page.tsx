@@ -1,105 +1,54 @@
-// /supervision — B2B approval queue.
+// /supervision — the B2B approval queue.
 //
-// Server Component. Reads `b2bOwnerRequests` via firebase-admin, which
-// bypasses Firestore Rules. That's fine because (protected)/layout has
-// already verified the caller is an admin (session cookie + 'admin'
-// custom claim) before this server component runs.
+// Server Component. `GET /admin/b2b-requests` is the queue; the (protected)
+// layout has verified the caller is an admin and the API checks the role
+// again.
 //
-// All state changes go through Server Actions in ./actions.ts which
-// re-verify admin status on every call — see comments in that file for
-// the full security model.
+// ⚠️ THE DECISION USED TO BE WRITTEN IN FOUR PLACES. Approving a company meant
+// updating the request document, mirroring `b2bApprovalStatus` onto the user,
+// setting a Firebase custom claim, and hoping the three agreed — they did not,
+// in production: twelve accounts carried the claim while four request records
+// said approved. Approval is one row now, and everything that gates on "is
+// this company approved?" joins to it.
 
 import 'server-only';
-import type { Timestamp } from 'firebase-admin/firestore';
-import { serverDb } from '@/lib/firebase-admin';
+import { apiAuthed } from '@/lib/session';
+import { requireAdminSession } from '@/lib/auth';
 import { StatusBadge } from './_components/status-badge';
 import { FilterTabs } from './_components/filter-tabs';
 import { RequestActions } from './_components/request-actions';
 import {
   asFilter,
+  mapApiRequest,
+  type ApiB2bRequest,
   type B2bRequest,
-  type B2bStatus,
   type FilterValue,
 } from './_lib/types';
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
 
-const STATUS_ORDER_FOR_ALL: B2bStatus[] = ['pending', 'approved', 'rejected'];
-
-function timestampToDate(value: unknown): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  // Admin SDK Timestamp has toDate(); also handle Firestore JSON-serialized form.
-  if (typeof value === 'object' && value !== null && 'toDate' in value) {
-    try {
-      return (value as Timestamp).toDate();
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function mapDoc(id: string, data: FirebaseFirestore.DocumentData): B2bRequest {
-  return {
-    id,
-    ownerUid: typeof data.ownerUid === 'string' ? data.ownerUid : '',
-    companyName: typeof data.companyName === 'string' ? data.companyName : '(no company name)',
-    vatNumber: typeof data.vatNumber === 'string' ? data.vatNumber : '',
-    pec: typeof data.pec === 'string' && data.pec.length > 0 ? data.pec : null,
-    phoneNumber:
-      typeof data.phoneNumber === 'string' && data.phoneNumber.length > 0
-        ? data.phoneNumber
-        : null,
-    status:
-      data.status === 'approved' || data.status === 'rejected'
-        ? data.status
-        : 'pending',
-    notes: typeof data.notes === 'string' && data.notes.length > 0 ? data.notes : null,
-    submittedAt: timestampToDate(data.submittedAt),
-    reviewedAt: timestampToDate(data.reviewedAt),
-    reviewedByAdminUid:
-      typeof data.reviewedByAdminUid === 'string' ? data.reviewedByAdminUid : null,
-  };
-}
-
 async function loadRequests(filter: FilterValue): Promise<{
   list: B2bRequest[];
   counts: Record<FilterValue, number>;
 }> {
-  const db = serverDb();
-  // Fetch everything once (the queue is small — generally <100). Cheaper
-  // than three separate filtered queries when we also need per-status counts.
-  // If this ever scales past a few thousand, switch to three indexed queries.
-  const snap = await db
-    .collection('b2bOwnerRequests')
-    .orderBy('submittedAt', 'desc')
-    .get();
+  // The queue is oldest-first on the API — a review queue, not a feed — and
+  // 100 is its ceiling. At a few applications a week that is years of backlog;
+  // if it ever is not, the fix is paging, not a bigger number.
+  const params = new URLSearchParams({ limit: '100' });
+  if (filter !== 'all') params.set('status', filter);
 
-  const all: B2bRequest[] = snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
+  const res = await apiAuthed<{
+    items: ApiB2bRequest[];
+    counts: { pending: number; approved: number; rejected: number; all: number };
+  }>(`/admin/b2b-requests?${params.toString()}`);
 
-  const counts: Record<FilterValue, number> = {
-    pending: 0,
-    approved: 0,
-    rejected: 0,
-    all: all.length,
-  };
-  for (const req of all) counts[req.status]++;
+  const empty = { pending: 0, approved: 0, rejected: 0, all: 0 };
+  if (!res) return { list: [], counts: empty };
 
-  const list =
-    filter === 'all' ? all : all.filter((r) => r.status === filter);
-
-  // For the "all" view, group by status to keep pending up top.
-  if (filter === 'all') {
-    list.sort((a, b) => {
-      const ai = STATUS_ORDER_FOR_ALL.indexOf(a.status);
-      const bi = STATUS_ORDER_FOR_ALL.indexOf(b.status);
-      if (ai !== bi) return ai - bi;
-      return (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0);
-    });
-  }
-
-  return { list, counts };
+  // `counts` arrived with a later deploy than the rest of this endpoint, and a
+  // page that throws because one field is missing is a worse answer than a
+  // page with zeroes in the tabs.
+  return { list: res.items.map(mapApiRequest), counts: res.counts ?? empty };
 }
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -120,6 +69,7 @@ export default async function SupervisionPage({
 }: {
   searchParams: SearchParams;
 }) {
+  await requireAdminSession();
   const params = await searchParams;
   const filter = asFilter(params.filter);
   const [t, { list, counts }] = await Promise.all([
@@ -192,8 +142,12 @@ function RequestCard({ request, t }: { request: B2bRequest; t: TFunc }) {
       <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
         <Field label="VAT (Partita IVA)" value={request.vatNumber || '—'} mono />
         <Field label="PEC" value={request.pec ?? '—'} />
+        <Field label={t('supervision.fieldContact')} value={request.adminName ?? '—'} />
         <Field label={t('supervision.fieldPhone')} value={request.phoneNumber ?? '—'} />
-        <Field label={t('supervision.fieldOwnerUid')} value={request.ownerUid || '—'} mono />
+        {/* The reference the applicant was given. It is what they quote to
+            support, so it is what a reviewer should be able to search for. */}
+        <Field label={t('supervision.fieldTicketRef')} value={request.ticketRef} mono />
+        <Field label={t('supervision.fieldApplicant')} value={applicantLine(request)} />
       </dl>
 
       {request.notes && (
@@ -215,6 +169,11 @@ function RequestCard({ request, t }: { request: B2bRequest; t: TFunc }) {
       )}
     </article>
   );
+}
+
+/** Who applied — a name and an email beat a uid nobody can act on. */
+function applicantLine(r: B2bRequest): string {
+  return [r.ownerName, r.ownerEmail].filter(Boolean).join(' · ') || r.ownerUid || '—';
 }
 
 function Field({
