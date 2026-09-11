@@ -1,29 +1,35 @@
 // /users — every user on the platform, of every type.
 //
 // Server Component, read-only. The (protected)/layout has already verified
-// the caller is an admin. Reads the whole `users` collection (capped),
-// classifies each doc, and renders a filterable list; each row links to
-// /users/[uid] for the full detail view.
+// the caller is an admin. Each row links to /users/[uid] for the detail view.
+//
+// ⚠️ THE SEARCH AND THE FILTER MOVED TO THE SERVER. This used to read the
+// whole `users` collection from Firestore — capped at 2000 — and then filter,
+// search and sort it in memory. That was fine at launch scale and silently
+// wrong past it: user 2001 was simply invisible, to search as well as to the
+// list, with nothing on screen to say so. The API does all three now and pages
+// with a cursor, so there is no cap to outgrow.
 //
 // No client components — filter tabs are <Link>s, search is a plain GET
-// <form>. At launch scale (hundreds–low thousands of users) one capped
-// read is fine; add cursor pagination if the collection grows large.
+// <form>, and "load more" is a link carrying the cursor.
 
 import 'server-only';
 import Link from 'next/link';
-import { serverDb } from '@/lib/firebase-admin';
+import { apiAuthed } from '@/lib/session';
 import { requireAdminSession } from '@/lib/auth';
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
 import {
   asRoleFilter,
-  mapUserRow,
+  mapApiUser,
+  roleFilterToApi,
   roleLabel,
+  type ApiUser,
   type RoleFilter,
   type UserRow,
 } from './_lib/user-model';
 
-const MAX_USERS = 2000;
+const PAGE_SIZE = 50;
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -31,49 +37,46 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric',
 });
 
-function matchesQuery(u: UserRow, q: string): boolean {
-  if (!q) return true;
-  const n = q.toLowerCase();
-  return (
-    u.email.toLowerCase().includes(n) ||
-    u.displayName.toLowerCase().includes(n) ||
-    (u.fullName?.toLowerCase().includes(n) ?? false) ||
-    (u.companyName?.toLowerCase().includes(n) ?? false) ||
-    u.uid.toLowerCase().includes(n)
-  );
-}
 
 async function loadUsers(
   role: RoleFilter,
-  q: string
-): Promise<{ list: UserRow[]; counts: Record<RoleFilter, number> }> {
-  const db = serverDb();
-  const snap = await db.collection('users').limit(MAX_USERS).get();
-  const all = snap.docs.map((d) => mapUserRow(d.id, d.data()));
+  q: string,
+  cursor: string,
+): Promise<{
+  list: UserRow[];
+  counts: Record<RoleFilter, number>;
+  nextCursor: string | null;
+}> {
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+  const apiRole = roleFilterToApi(role);
+  if (apiRole) params.set('role', apiRole);
+  if (q) params.set('q', q);
+  if (cursor) params.set('cursor', cursor);
 
-  // Counts are over the whole population (pre-search) so the tab badges
-  // are stable while you type.
-  const counts: Record<RoleFilter, number> = {
-    all: all.length,
-    tenant: all.filter((u) => u.kind === 'tenant').length,
-    landlord: all.filter((u) => u.kind === 'landlord').length,
-  };
+  const res = await apiAuthed<{
+    items: ApiUser[];
+    counts: { all: number; tenant: number; owner: number };
+    page: { cursor: string | null; hasMore: boolean };
+  }>(`/admin/users?${params.toString()}`);
 
-  let list = all;
-  if (role === 'tenant') list = list.filter((u) => u.kind === 'tenant');
-  else if (role === 'landlord') {
-    list = list.filter((u) => u.kind === 'landlord');
+  if (!res) {
+    return { list: [], counts: { all: 0, tenant: 0, landlord: 0 }, nextCursor: null };
   }
-  if (q) list = list.filter((u) => matchesQuery(u, q));
 
-  // Newest accounts first; undated docs sink to the bottom.
-  list.sort(
-    (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
-  );
-  return { list, counts };
+  return {
+    list: res.items.map(mapApiUser),
+    // The badges describe the population, not the result — they deliberately
+    // do not move as you type. `owner` on the wire is `landlord` here.
+    counts: {
+      all: res.counts.all,
+      tenant: res.counts.tenant,
+      landlord: res.counts.owner,
+    },
+    nextCursor: res.page.hasMore ? res.page.cursor : null,
+  };
 }
 
-type SearchParams = Promise<{ role?: string; q?: string }>;
+type SearchParams = Promise<{ role?: string; q?: string; cursor?: string }>;
 
 export default async function UsersPage({
   searchParams,
@@ -85,8 +88,9 @@ export default async function UsersPage({
   const params = await searchParams;
   const role = asRoleFilter(params.role);
   const q = typeof params.q === 'string' ? params.q.trim() : '';
+  const cursor = typeof params.cursor === 'string' ? params.cursor : '';
 
-  const { list, counts } = await loadUsers(role, q);
+  const { list, counts, nextCursor } = await loadUsers(role, q, cursor);
 
   return (
     <div className="space-y-8">

@@ -1,32 +1,18 @@
-// Shared helpers for the Users section — classification + row mapping.
+// The shape the Users screens render, and the mapping from the API to it.
 //
-// The `users/{uid}` schema is mixed: every account written by the Flutter
-// signup flow carries a legacy `role` ('tenant' | 'owner') plus, for
-// owners, an `ownerType` ('b2c' | 'b2b'); the splitUserOnWrite Cloud
-// Function additionally derives a v2 `roles` array. classify() reads all
-// of them so the panel is correct regardless of which a given doc has.
+// ⚠️ THIS USED TO MAP FIRESTORE DOCUMENTS. The old version read raw
+// `DocumentData` and derived everything client-side — the role from two
+// fields, the status from a `suspended.active` sub-object, `managed` from the
+// presence of a `managedBy` string. All of that now arrives already decided by
+// the API, which is the right place for it: two clients deriving "is this
+// account usable" from the same nullable timestamps will eventually disagree.
 
-import type { Timestamp } from 'firebase-admin/firestore';
 import type { TFunc } from '@/i18n/t';
-
-export function tsToDate(value: unknown): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  if (typeof value === 'object' && value !== null && 'toDate' in value) {
-    try {
-      return (value as Timestamp).toDate();
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
 
 export type UserKind = 'tenant' | 'landlord' | 'other';
 export type OwnerType = 'b2c' | 'b2b' | null;
 export type UserStatus = 'active' | 'suspended' | 'archived';
 
-/** Tab values for the /users list filter. */
 export type RoleFilter = 'all' | 'tenant' | 'landlord';
 
 export function asRoleFilter(raw: string | string[] | undefined): RoleFilter {
@@ -34,37 +20,147 @@ export function asRoleFilter(raw: string | string[] | undefined): RoleFilter {
   return v === 'tenant' || v === 'landlord' ? v : 'all';
 }
 
-/** Classifies a user doc into tenant / landlord (+ owner sub-type). */
-export function classify(d: FirebaseFirestore.DocumentData): {
-  kind: UserKind;
-  ownerType: OwnerType;
-} {
-  const roles = Array.isArray(d.roles)
-    ? (d.roles.filter((r): r is string => typeof r === 'string'))
-    : [];
-  const role = typeof d.role === 'string' ? d.role : '';
-  const ownerTypeRaw =
-    typeof d.ownerType === 'string' ? d.ownerType.toLowerCase() : '';
-
-  const isOwner =
-    role === 'owner' || roles.some((r) => r.startsWith('owner'));
-  const isTenant = role === 'tenant' || roles.includes('tenant');
-
-  if (isOwner) {
-    let ownerType: OwnerType = 'b2c';
-    if (ownerTypeRaw === 'b2b' || roles.includes('owner_b2b')) {
-      ownerType = 'b2b';
-    }
-    return { kind: 'landlord', ownerType };
-  }
-  if (isTenant) return { kind: 'tenant', ownerType: null };
-  return { kind: 'other', ownerType: null };
+/** The panel's vocabulary → the API's. `landlord` is `owner` on the wire. */
+export function roleFilterToApi(role: RoleFilter): string | undefined {
+  if (role === 'tenant') return 'tenant';
+  if (role === 'landlord') return 'owner';
+  return undefined;
 }
 
-export function deriveStatus(d: FirebaseFirestore.DocumentData): UserStatus {
-  if (d.deletedAt) return 'archived';
-  if (d.suspended && d.suspended.active === true) return 'suspended';
-  return 'active';
+/** One row of `GET /admin/users`. */
+export interface ApiUser {
+  id: string;
+  email: string;
+  username: string;
+  fullName: string | null;
+  photoUrl: string | null;
+  role: string;
+  ownerKind: string | null;
+  companyName: string | null;
+  vatNumber: string | null;
+  phoneNumber: string | null;
+  emailVerified: boolean;
+  profileCompleted: boolean;
+  identityStatus: string;
+  status: string;
+  suspendedReason: string | null;
+  averageRating: number;
+  reviewCount: number;
+  createdAt: string;
+  lastSeenAt: string | null;
+}
+
+/** A block counterparty, name already resolved by the API. */
+export interface ApiParty {
+  id: string;
+  username: string;
+  fullName: string | null;
+  createdAt: string;
+}
+
+/**
+ * `GET /admin/users/{id}` — the list row plus everything that lives in a
+ * satellite table. Every field is optional-safe on the client: the detail page
+ * renders an em-dash for anything absent rather than assuming the API version
+ * it was written against is the one deployed.
+ */
+export interface ApiUserDetail extends ApiUser {
+  birthDate: string | null;
+  gender: string | null;
+  bio: string | null;
+  bioModeratedAt: string | null;
+  locale: string;
+  authProvider: string;
+  roleConfirmedAt: string | null;
+
+  identityVerifiedAt: string | null;
+  identityFailureReason: string | null;
+  verifiedOwner: boolean;
+  verifiedTenant: boolean;
+
+  consent: {
+    version: string | null;
+    acceptedAt: string | null;
+    confirmedAge18: boolean;
+    messaging: boolean;
+    messagingAt: string | null;
+  };
+
+  suspendedAt: string | null;
+  deletedAt: string | null;
+  purgeAt: string | null;
+  updatedAt: string;
+
+  tenantProfile: {
+    universityName: string | null;
+    profession: string | null;
+    professionalArea: string | null;
+    cleanlinessLevel: number | null;
+    noiseLevel: number | null;
+    sleepSchedule: number | null;
+    sociability: number | null;
+    guests: number | null;
+    isSmoker: boolean | null;
+    hasPets: boolean | null;
+    cooksOften: boolean | null;
+  } | null;
+
+  ownerProfile: {
+    companyName: string | null;
+    vatNumber: string | null;
+    fiscalCode: string | null;
+    pec: string | null;
+    adminName: string | null;
+  } | null;
+
+  b2bRequest: {
+    ticketRef: string;
+    status: string;
+    companyName: string | null;
+    vatNumber: string | null;
+    pec: string | null;
+    adminName: string | null;
+    phoneNumber: string | null;
+    notes: string | null;
+    reviewedAt: string | null;
+    createdAt: string;
+  } | null;
+
+  /** Identifiers and state only — this panel never operates Stripe. */
+  stripe: {
+    mode: string | null;
+    customerId: string | null;
+    connect: {
+      accountId: string;
+      chargesEnabled: boolean;
+      payoutsEnabled: boolean;
+      rejected: boolean;
+      disabledReason: string | null;
+      requirementsDue: string[];
+      onboardingStatus: string | null;
+    } | null;
+    subscription: {
+      id: string;
+      status: string;
+      interval: string;
+      currentPeriodEnd: string | null;
+      cancelAtPeriodEnd: boolean;
+      waiverActive: boolean;
+    } | null;
+  };
+
+  counts: {
+    properties: number;
+    contractsAsTenant: number;
+    contractsAsLandlord: number;
+    reportsAgainst: number;
+    reportsMade: number;
+    blocksMade: number;
+    blocksReceived: number;
+  };
+
+  /** Capped at 50 rows each — `counts` carries the true total. */
+  blocks: { made: ApiParty[]; received: ApiParty[] };
 }
 
 export interface UserRow {
@@ -81,37 +177,57 @@ export interface UserRow {
   emailVerified: boolean;
   profileCompleted: boolean;
   status: UserStatus;
+  /**
+   * ⚠️ ALWAYS FALSE FOR NOW, AND THAT IS NOT AN OVERSIGHT. There is no
+   * managed-owner concept in the new database — the old flag read a Firestore
+   * `managedBy` field with no equivalent. Left in the type so the Active
+   * Management screen keeps compiling until its data model is designed.
+   */
   managed: boolean;
 }
 
-const str = (v: unknown): string | null =>
-  typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
-
-export function mapUserRow(
-  uid: string,
-  d: FirebaseFirestore.DocumentData
-): UserRow {
-  const { kind, ownerType } = classify(d);
-  const name = str(d.name);
-  const surname = str(d.surname);
-  const fullName =
-    str(d.fullName) ?? ([name, surname].filter(Boolean).join(' ') || null);
+export function mapApiUser(u: ApiUser): UserRow {
   return {
-    uid,
-    email: str(d.email) ?? '',
-    displayName: str(d.displayUsername) ?? str(d.username) ?? '(unnamed)',
-    fullName,
-    photoUrl: str(d.photoUrl) ?? str(d.profilePicture),
-    kind,
-    ownerType,
-    companyName: str(d.companyName),
-    phoneNumber: str(d.phoneNumber),
-    createdAt: tsToDate(d.createdAt),
-    emailVerified: d.emailVerified === true,
-    profileCompleted: d.profileCompleted === true,
-    status: deriveStatus(d),
-    managed: typeof d.managedBy === 'string' && d.managedBy.length > 0,
+    uid: u.id,
+    email: u.email,
+    // The API always has a username; the old panel fell back through two
+    // fields and then to "(unnamed)" because Firestore sometimes had neither.
+    displayName: u.username || u.email || '(unnamed)',
+    fullName: u.fullName,
+    photoUrl: u.photoUrl,
+    kind: kindOf(u.role),
+    ownerType: ownerTypeOf(u.ownerKind),
+    companyName: u.companyName,
+    phoneNumber: u.phoneNumber,
+    createdAt: u.createdAt ? new Date(u.createdAt) : null,
+    emailVerified: u.emailVerified,
+    profileCompleted: u.profileCompleted,
+    status: statusOf(u.status),
+    managed: false,
   };
+}
+
+export function kindOf(role: string): UserKind {
+  const r = role?.toLowerCase();
+  if (r === 'tenant') return 'tenant';
+  if (r === 'owner') return 'landlord';
+  return 'other';
+}
+
+/** `institutional` is the API's word for what this panel calls B2B. */
+export function ownerTypeOf(ownerKind: string | null): OwnerType {
+  const k = ownerKind?.toLowerCase();
+  if (k === 'institutional') return 'b2b';
+  if (k === 'individual') return 'b2c';
+  return null;
+}
+
+/** The API says `deleted`; this panel has always called that `archived`. */
+export function statusOf(status: string): UserStatus {
+  const s = status?.toLowerCase();
+  if (s === 'suspended') return 'suspended';
+  if (s === 'deleted' || s === 'archived') return 'archived';
+  return 'active';
 }
 
 /** Human label for a user's role/type, e.g. "Landlord · B2B". */
