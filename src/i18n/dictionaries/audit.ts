@@ -26,6 +26,26 @@ const it = {
   publishListingAs: 'Annuncio pubblicato come partner',
   uploadPhotoAs: 'Foto annuncio caricata come partner',
   partnerNotification: 'Notifica al partner inviata',
+  // Actions written by the API's own audit trail (`admin_actions.action`).
+  // Different vocabulary from the Firestore feed above, which is why they are
+  // separate keys rather than aliases: `user.suspend` and the old `suspend`
+  // are the same decision recorded by two different systems.
+  apiUserSuspend: 'Account sospeso',
+  apiUserRestore: 'Account riattivato',
+  apiUserGrantAdmin: 'Ruolo amministratore concesso',
+  apiUserRevokeAdmin: 'Ruolo amministratore revocato',
+  apiUserCreateAdmin: 'Amministratore creato',
+  apiB2bApprove: 'Azienda approvata',
+  apiB2bReject: 'Azienda rifiutata',
+  apiReportActioned: 'Segnalazione risolta',
+  apiReportDismissed: 'Segnalazione respinta',
+  apiReportReviewing: 'Segnalazione presa in carico',
+  apiAreaCreate: 'Città aggiunta',
+  apiAreaUpdate: 'Città aggiornata',
+  apiAreaDelete: 'Città rimossa',
+  apiUnknown: 'Azione amministrativa',
+  onBehalfOf: 'per conto di {who}',
+
   // Detail fragments
   charsCount: '{count} caratteri',
   listingsRestored: '{count} annunci ripristinati',
@@ -37,6 +57,22 @@ const it = {
 };
 
 const en: Record<keyof typeof it, string> = {
+  apiUserSuspend: 'Suspended account',
+  apiUserRestore: 'Reactivated account',
+  apiUserGrantAdmin: 'Granted admin role',
+  apiUserRevokeAdmin: 'Revoked admin role',
+  apiUserCreateAdmin: 'Created an admin',
+  apiB2bApprove: 'Approved company',
+  apiB2bReject: 'Rejected company',
+  apiReportActioned: 'Resolved report',
+  apiReportDismissed: 'Dismissed report',
+  apiReportReviewing: 'Took over report',
+  apiAreaCreate: 'Added city',
+  apiAreaUpdate: 'Updated city',
+  apiAreaDelete: 'Removed city',
+  apiUnknown: 'Admin action',
+  onBehalfOf: 'on behalf of {who}',
+
   editProfile: 'Edited profile',
   setNote: 'Updated admin notes',
   setTags: 'Updated tags',

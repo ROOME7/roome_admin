@@ -1,23 +1,22 @@
-// Dashboard — at-a-glance counters + most recent admin actions feed.
+// Dashboard — at-a-glance counters, the property map, and the most recent
+// admin decisions.
 //
-// All read-only. Counts come from Firestore aggregate `.count()` queries
-// (cheap; doesn't transfer doc bodies). Recent activity reads the last 20
-// adminAccountActions entries and renders via the shared formatAdminAction
-// formatter so the same admin action shows identical copy here and in the
-// per-account Activity dialog (T5 Item 17).
+// All read-only, and all from the API: the counts in one transaction, the pins
+// from the admin map endpoint, the feed from the append-only `admin_actions`
+// table. That last one is new to this screen — the trail had been recording
+// every privileged decision since the start with nothing able to display it.
 //
-// The dashboard intentionally has no caching layer — counters move slowly
-// enough that a fresh read on every page load is fine, and a stale cache
-// here is a worse experience than a 300ms read.
+// No caching layer on purpose: counters move slowly enough that a fresh read
+// per page load is fine, and a stale figure here is worse than a 300ms wait.
 
 import 'server-only';
 import Link from 'next/link';
 import { apiAuthed } from '@/lib/session';
-import { getRecentAdminActions } from '@/lib/audit';
 import {
-  formatAdminAction,
-  type AdminActionEntry,
-} from '@/lib/audit-format';
+  formatAuditEntry,
+  getRecentAuditEntries,
+  type AuditEntry,
+} from '@/lib/admin-audit';
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
 import { DashboardMap, type MapMarker } from './_components/dashboard-map';
@@ -142,12 +141,12 @@ export default async function DashboardPage() {
   const [countsResult, activityResult, markersResult] =
     await Promise.allSettled([
       loadCounts(),
-      getRecentAdminActions(20),
+      getRecentAuditEntries(20),
       loadMapMarkers(),
     ]);
   const counts =
     countsResult.status === 'fulfilled' ? countsResult.value : EMPTY_COUNTS;
-  const activity: AdminActionEntry[] =
+  const activity: AuditEntry[] =
     activityResult.status === 'fulfilled' ? activityResult.value : [];
   const markers: MapMarker[] =
     markersResult.status === 'fulfilled' ? markersResult.value : [];
@@ -283,8 +282,8 @@ function StatCard({
   );
 }
 
-function ActivityRow({ entry, t }: { entry: AdminActionEntry; t: TFunc }) {
-  const formatted = formatAdminAction(entry, t);
+function ActivityRow({ entry, t }: { entry: AuditEntry; t: TFunc }) {
+  const formatted = formatAuditEntry(entry, t);
   const toneClass = {
     neutral: 'bg-secondary text-muted-foreground',
     positive: 'bg-primary/10 text-primary',
@@ -297,7 +296,9 @@ function ActivityRow({ entry, t }: { entry: AdminActionEntry; t: TFunc }) {
       <span
         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${toneClass}`}
       >
-        {entry.action.replace(/_/g, ' ')}
+        {/* The raw action name, dots and all — it is what you would grep the
+            audit table for. */}
+        {entry.action}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-foreground">{formatted.title}</p>
@@ -306,8 +307,8 @@ function ActivityRow({ entry, t }: { entry: AdminActionEntry; t: TFunc }) {
             {formatted.detail}
           </p>
         )}
-        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-          admin {entry.adminUid.slice(0, 8)}… · target {entry.targetUid.slice(0, 8)}…
+        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+          {entry.actor?.email || entry.actor?.username || entry.actor?.id || '—'}
         </p>
       </div>
       <span className="shrink-0 text-xs text-muted-foreground">
