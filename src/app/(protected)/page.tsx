@@ -12,7 +12,7 @@
 
 import 'server-only';
 import Link from 'next/link';
-import { serverDb } from '@/lib/firebase-admin';
+import { apiAuthed } from '@/lib/session';
 import { getRecentAdminActions } from '@/lib/audit';
 import {
   formatAdminAction,
@@ -24,7 +24,13 @@ import { DashboardMap, type MapMarker } from './_components/dashboard-map';
 
 type Counts = {
   pendingB2b: number;
-  managed: number;
+  /**
+   * ⚠️ NULL, NOT ZERO. There is no managed-owner concept in Postgres yet — the
+   * old panel's flag read a Firestore `managedBy` with no equivalent. Zero
+   * would claim we looked and found none; null says the question cannot be
+   * answered, and the card renders a dash.
+   */
+  managed: number | null;
   suspended: number;
   tenants: number;
   landlords: number;
@@ -37,7 +43,7 @@ type Counts = {
 
 const EMPTY_COUNTS: Counts = {
   pendingB2b: 0,
-  managed: 0,
+  managed: null,
   suspended: 0,
   tenants: 0,
   landlords: 0,
@@ -48,111 +54,76 @@ const EMPTY_COUNTS: Counts = {
   openReports: 0,
 };
 
+/**
+ * ⚠️ THIS USED TO READ FIRESTORE, AND IT WAS REPORTING ON THE WRONG DATABASE.
+ * It showed "540 active listings" while the app and the website served 15 —
+ * the Firebase dataset the product migrated off. Every figure on the dashboard
+ * described a system nobody uses, which is worse than showing nothing: a blank
+ * card prompts a question, a confident wrong number does not.
+ *
+ * One call now, counted server-side in a single transaction so the figures are
+ * a consistent snapshot rather than ten reads that can disagree.
+ */
+interface StatsResponse {
+  totalTenants: number;
+  totalLandlords: number;
+  activeListings: number;
+  totalProperties: number;
+  activeTenancies: number;
+  pendingApplications: number;
+  openReports: number;
+  pendingB2bRequests: number;
+  suspendedAccounts: number;
+  managedAccounts: number | null;
+}
+
 async function loadCounts(): Promise<Counts> {
-  const db = serverDb();
-  // count() aggregations in parallel — each is a single round-trip that
-  // returns just the integer, no doc bodies. Cheap.
-  //
-  // Tenants / landlords are counted on the `role` field ('tenant' |
-  // 'owner') — written by the Flutter signup flow on every account, so
-  // it's the reliable discriminator. "Landlords of all types" = every
-  // owner, B2C and B2B alike (ownerType only splits them further).
-  //
-  // Marketplace / contracts / moderation counters reuse the same statuses
-  // the rest of the panel writes:
-  //   - listings.status: 'active' | 'paused' | 'archived' — 'active' = live
-  //     on the marketplace (kept in sync by the syncListing* Cloud Functions).
-  //   - contracts.status: 'active' (live tenancy) | 'pending' (application
-  //     awaiting the landlord) | 'cancelled'.
-  //   - reports.status: 'open' (unactioned moderation queue) | 'reviewing' |
-  //     'resolved' | 'dismissed'.
-  const [
-    pendingB2bSnap,
-    managedSnap,
-    suspendedSnap,
-    tenantsSnap,
-    landlordsSnap,
-    activeListingsSnap,
-    propertiesSnap,
-    activeTenanciesSnap,
-    pendingApplicationsSnap,
-    openReportsSnap,
-  ] = await Promise.all([
-    db
-      .collection('b2bOwnerRequests')
-      .where('status', '==', 'pending')
-      .count()
-      .get(),
-    db.collection('users').where('managedBy', '!=', null).count().get(),
-    db
-      .collection('users')
-      .where('suspended.active', '==', true)
-      .count()
-      .get(),
-    db.collection('users').where('role', '==', 'tenant').count().get(),
-    db.collection('users').where('role', '==', 'owner').count().get(),
-    db.collection('listings').where('status', '==', 'active').count().get(),
-    db.collection('properties').count().get(),
-    db.collection('contracts').where('status', '==', 'active').count().get(),
-    db.collection('contracts').where('status', '==', 'pending').count().get(),
-    db.collection('reports').where('status', '==', 'open').count().get(),
-  ]);
+  const s = await apiAuthed<StatsResponse>('/admin/stats');
+  if (!s) return EMPTY_COUNTS;
   return {
-    pendingB2b: pendingB2bSnap.data().count,
-    managed: managedSnap.data().count,
-    suspended: suspendedSnap.data().count,
-    tenants: tenantsSnap.data().count,
-    landlords: landlordsSnap.data().count,
-    activeListings: activeListingsSnap.data().count,
-    properties: propertiesSnap.data().count,
-    activeTenancies: activeTenanciesSnap.data().count,
-    pendingApplications: pendingApplicationsSnap.data().count,
-    openReports: openReportsSnap.data().count,
+    tenants: s.totalTenants,
+    landlords: s.totalLandlords,
+    activeListings: s.activeListings,
+    properties: s.totalProperties,
+    activeTenancies: s.activeTenancies,
+    pendingApplications: s.pendingApplications,
+    openReports: s.openReports,
+    pendingB2b: s.pendingB2bRequests,
+    suspended: s.suspendedAccounts,
+    managed: s.managedAccounts,
   };
 }
 
-// Map markers — one per property that has real coordinates. Listings derive
-// from properties but DON'T carry lat/lng (see the syncListing* Cloud
-// Functions), so the property doc is the only source of coordinates. The
-// dataset is small (tens of docs); we read the collection and filter in
-// memory rather than maintaining a geo-index. Full per-pin detail (photos,
-// rooms, owner) is lazy-loaded on tap via the getListingDetail server action.
+/**
+ * One pin per PROPERTY, from the admin endpoint rather than the public
+ * `/listings/map` — that one returns a pin per listed ROOM and carries no
+ * address, so a three-room flat would stack three unlabelled pins on one spot
+ * and an off-market property would vanish from an overview meant to show
+ * everything, including what is not selling.
+ */
 async function loadMapMarkers(): Promise<MapMarker[]> {
-  const db = serverDb();
-  const snap = await db.collection('properties').get();
-  const markers: MapMarker[] = [];
-  for (const doc of snap.docs) {
-    const d = doc.data() ?? {};
-    if (d.deletedAt) continue;
-    const lat =
-      typeof d.latitude === 'number' && Number.isFinite(d.latitude)
-        ? d.latitude
-        : null;
-    const lng =
-      typeof d.longitude === 'number' && Number.isFinite(d.longitude)
-        ? d.longitude
-        : null;
-    if (lat === null || lng === null) continue;
+  const res = await apiAuthed<{
+    items: Array<{
+      id: string;
+      lat: number;
+      lng: number;
+      label: string;
+      priceCents: number;
+      onMarket: boolean;
+    }>;
+  }>('/admin/stats/map');
 
-    const street = typeof d.address === 'string' ? d.address : '';
-    const civic = typeof d.civic === 'string' ? d.civic : '';
-    const city = typeof d.city === 'string' ? d.city : '';
-    const label =
-      [[street, civic].filter(Boolean).join(' '), city]
-        .filter(Boolean)
-        .join(', ') || doc.id;
-
-    markers.push({
-      id: doc.id,
-      lat,
-      lng,
-      kind: 'listing',
-      label,
-      price: typeof d.lowestPrice === 'number' ? d.lowestPrice : 0,
-      onMarket: d.isOnMarket !== false,
-    });
-  }
-  return markers;
+  return (res?.items ?? []).map((p) => ({
+    id: p.id,
+    lat: p.lat,
+    lng: p.lng,
+    kind: 'listing' as const,
+    label: p.label,
+    // Cents on the wire, euros on the screen — the conversion happens once,
+    // here, rather than in each component.
+    price: Math.round(p.priceCents / 100),
+    onMarket: p.onMarket,
+  }));
 }
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -279,7 +250,8 @@ function StatCard({
   tone,
 }: {
   label: string;
-  value: number;
+  // `null` means "not tracked", which is different from zero — see Counts.
+  value: number | null;
   // Some counters (marketplace / contracts metrics) have no dedicated admin
   // page to drill into yet — those render as a plain, non-clickable card.
   href?: string;
