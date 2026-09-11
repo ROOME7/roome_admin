@@ -8,8 +8,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { signOut } from 'firebase/auth';
-import { adminAuth } from '@/lib/firebase-client';
 import { useT } from '@/i18n/client';
 
 function GearIcon() {
@@ -103,16 +101,17 @@ export default function UserMenu({ user }: UserMenuProps) {
   async function handleSignOut() {
     setSigningOut(true);
     try {
+      // DELETE clears both cookies and revokes the refresh token server-side,
+      // so the session is dead everywhere, not just in this browser.
+      //
+      // ⚠️ THE FIREBASE `signOut()` THAT FOLLOWED THIS IS GONE. There is no
+      // Firebase session to end any more, and the import pulled the Firebase
+      // client SDK into the bundle of every page that renders this menu —
+      // which is all of them.
       await fetch('/api/session', { method: 'DELETE' });
     } catch {
-      // best-effort — cookie clear is server-driven, even if the request fails
-      // the next page load will redirect to /login because the cookie was
-      // either cleared or has expired claims.
-    }
-    try {
-      await signOut(adminAuth);
-    } catch {
-      // ignore
+      // Best-effort: the cookie clear is server-driven, and if the request
+      // never lands the next page load bounces to /login anyway.
     }
     router.replace('/login');
   }
