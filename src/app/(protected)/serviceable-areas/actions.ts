@@ -2,104 +2,34 @@
 
 // Serviceable Areas — server actions (admin-only).
 //
-//   searchPlaces        OSM/Nominatim lookup for Italian settlements
+//   searchPlaces           OSM lookup for Italian settlements
 //   createServiceableArea  store a chosen place as a serviceable area
-//   setAreaActive       toggle an area on/off (tenants only see active ones)
-//   deleteServiceableArea  remove an area
+//   setAreaActive          switch an area on or off
+//   deleteServiceableArea  remove one permanently
 //
-// Writes go through firebase-admin (bypasses Firestore rules); reads by the
-// app/tenants are gated by the public-read rule on `serviceableAreas`.
+// ⚠️ ALL FOUR ARE NOW THIN. The OSM query, the settlement filter, the dedupe,
+// the slug collision rule for two same-named comuni, the refusal to delete a
+// city that still has properties — every one of those decisions used to live
+// in this file AND in the API, in two copies that could disagree. They live in
+// the API. This file carries the admin's token and reports what came back.
 
 import { revalidatePath } from "next/cache";
-import { FieldValue } from "firebase-admin/firestore";
-import { serverDb } from "@/lib/firebase-admin";
 import { requireAdminSession } from "@/lib/auth";
-import { slugify, type PlaceCandidate } from "@/lib/serviceable-areas";
+import { apiAuthed, ApiCallError, AuthRequiredError } from "@/lib/session";
+import type { PlaceCandidate } from "@/lib/serviceable-areas";
 
 type Result<T = undefined> =
   | { ok: true; data?: T }
   | { ok: false; error: string };
 
-const NOMINATIM = "https://nominatim.openstreetmap.org/search";
-// Nominatim usage policy requires a descriptive User-Agent identifying the app.
-const USER_AGENT = "RoomeAdmin/1.0 (https://roomeapp.it)";
-
-// OSM "place" types we treat as selectable settlements.
-const SETTLEMENT_TYPES = new Set([
-  "city",
-  "town",
-  "village",
-  "municipality",
-  "hamlet",
-  "suburb",
-]);
-
-interface OsmResult {
-  osm_id?: number;
-  osm_type?: string;
-  category?: string;
-  type?: string;
-  addresstype?: string;
-  place_rank?: number;
-  importance?: number;
-  name?: string;
-  display_name: string;
-  lat: string;
-  lon: string;
-  boundingbox?: string[];
-  address?: Record<string, string>;
-}
-
-// Keep only actual settlements. We match on `addresstype` (city/town/village/…)
-// rather than place_rank so province/region boundaries (addresstype 'county',
-// 'state') are excluded — otherwise searching "Milano" also surfaces the
-// Metropolitan City of Milan, which isn't something a tenant picks.
-function isSettlement(r: OsmResult): boolean {
-  if (r.addresstype && SETTLEMENT_TYPES.has(r.addresstype)) return true;
-  if (r.category === "place" && r.type && SETTLEMENT_TYPES.has(r.type))
-    return true;
-  return false;
-}
-
-function toCandidate(r: OsmResult): PlaceCandidate {
-  const a = r.address ?? {};
-  const name =
-    a.city ||
-    a.town ||
-    a.village ||
-    a.municipality ||
-    r.name ||
-    r.display_name.split(",")[0].trim();
-
-  // Italian province code lives in the ISO3166-2 lvl6 tag (e.g. "IT-BO").
-  const iso = a["ISO3166-2-lvl6"] || a["ISO3166-2-lvl5"] || "";
-  const province = (iso.includes("-") ? iso.split("-")[1] : "") || a.county || "";
-
-  const bb =
-    r.boundingbox && r.boundingbox.length === 4
-      ? {
-          minLat: parseFloat(r.boundingbox[0]),
-          maxLat: parseFloat(r.boundingbox[1]),
-          minLng: parseFloat(r.boundingbox[2]),
-          maxLng: parseFloat(r.boundingbox[3]),
-        }
-      : null;
-
-  return {
-    name,
-    province,
-    region: a.state || "",
-    country: (a.country_code || "it").toUpperCase(),
-    lat: parseFloat(r.lat),
-    lng: parseFloat(r.lon),
-    boundingBox: bb,
-    slug: slugify(name),
-    osmId: r.osm_id ?? null,
-    osmType: r.osm_type ?? null,
-    osmClass: r.category ?? null,
-    placeRank: r.place_rank ?? null,
-    displayName: r.display_name,
-  };
+/**
+ * The API answers in the admin's language and its messages are written for a
+ * person, so they are shown as-is. Only the codes that need a specific action
+ * get a hand-written line.
+ */
+function toError(err: unknown): Result<never> {
+  if (err instanceof ApiCallError) return { ok: false, error: err.message };
+  return { ok: false, error: "Something went wrong. Try again." };
 }
 
 export async function searchPlaces(
@@ -107,135 +37,71 @@ export async function searchPlaces(
 ): Promise<Result<PlaceCandidate[]>> {
   await requireAdminSession();
   const q = query.trim();
+  // Under two characters the lookup matches most of Italy; the API refuses it
+  // too, and asking is just a round trip to be told so.
   if (q.length < 2) return { ok: true, data: [] };
 
-  const url = new URL(NOMINATIM);
-  url.searchParams.set("q", q);
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("countrycodes", "it"); // Italy-only
-  url.searchParams.set("accept-language", "it");
-  url.searchParams.set("limit", "10");
-
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT },
-      cache: "no-store",
-    });
-    if (!res.ok) return { ok: false, error: `OSM lookup failed (${res.status}).` };
-    const raw = (await res.json()) as OsmResult[];
-    // Best matches first (OSM importance), then dedupe distinct OSM places.
-    const settlements = raw
-      .filter(isSettlement)
-      .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
-    // Dedupe by name+province (not osm_id): OSM often returns the city plus a
-    // same-named hamlet in the same province, which look identical to the
-    // admin. Sorted by importance, so the real city (kept first) wins.
-    const seen = new Set<string>();
-    const candidates: PlaceCandidate[] = [];
-    for (const r of settlements) {
-      const c = toCandidate(r);
-      if (!c.slug || !Number.isFinite(c.lat) || !Number.isFinite(c.lng))
-        continue;
-      const key = `${c.slug}|${c.province}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      candidates.push(c);
-    }
-    return { ok: true, data: candidates };
-  } catch {
-    return { ok: false, error: "Could not reach the OSM lookup service." };
+    const res = await apiAuthed<{ items: PlaceCandidate[] }>(
+      `/admin/areas/search?q=${encodeURIComponent(q)}`,
+    );
+    return { ok: true, data: res?.items ?? [] };
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    return toError(err);
   }
 }
 
 export async function createServiceableArea(
   candidate: PlaceCandidate,
 ): Promise<Result> {
-  const session = await requireAdminSession();
-  if (
-    !candidate ||
-    !candidate.name ||
-    !Number.isFinite(candidate.lat) ||
-    !Number.isFinite(candidate.lng)
-  ) {
+  await requireAdminSession();
+  if (!candidate?.name || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lng)) {
     return { ok: false, error: "Invalid place data." };
   }
-  const slug = slugify(candidate.name);
-  if (!slug) return { ok: false, error: "Could not derive a slug for this place." };
 
-  const db = serverDb();
-  // Default doc id is the slug. If a *different* place already holds that slug
-  // (same name, different province — common in Italy), disambiguate with the
-  // province code so both can coexist and ids stay stable.
-  let areaId = slug;
-  let ref = db.collection("serviceableAreas").doc(areaId);
-  const existing = await ref.get();
-  if (existing.exists) {
-    const sameOsm =
-      candidate.osmId != null &&
-      (existing.data()?.osm as { id?: number } | undefined)?.id ===
-        candidate.osmId;
-    if (sameOsm) {
-      return { ok: false, error: `"${candidate.name}" is already in the list.` };
-    }
-    const suffix = candidate.province
-      ? candidate.province.toLowerCase()
-      : String(candidate.osmId ?? Date.now());
-    areaId = `${slug}-${suffix}`;
-    ref = db.collection("serviceableAreas").doc(areaId);
-    if ((await ref.get()).exists) {
-      return { ok: false, error: `"${candidate.name}" is already in the list.` };
-    }
+  try {
+    // Passed through verbatim: `osmId` is what distinguishes two same-named
+    // comuni, and dropping it here is how both end up fighting over one id.
+    await apiAuthed("/admin/areas", {
+      method: "POST",
+      body: JSON.stringify({
+        name: candidate.name,
+        province: candidate.province || undefined,
+        region: candidate.region || undefined,
+        country: (candidate.country || "IT").toUpperCase(),
+        lat: candidate.lat,
+        lng: candidate.lng,
+        boundingBox: candidate.boundingBox,
+        osmId: candidate.osmId,
+        osmType: candidate.osmType,
+        osmClass: candidate.osmClass,
+        placeRank: candidate.placeRank,
+      }),
+    });
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    return toError(err);
   }
-
-  const countSnap = await db.collection("serviceableAreas").count().get();
-
-  await ref.set({
-    name: candidate.name,
-    displayName: candidate.name,
-    slug,
-    kind: "city",
-    parentAreaId: null,
-    ancestorIds: [],
-    level: 0,
-    province: candidate.province || "",
-    region: candidate.region || "",
-    country: candidate.country || "IT",
-    lat: candidate.lat,
-    lng: candidate.lng,
-    boundingBox: candidate.boundingBox ?? null,
-    osm: {
-      id: candidate.osmId ?? null,
-      type: candidate.osmType ?? null,
-      class: candidate.osmClass ?? null,
-      placeRank: candidate.placeRank ?? null,
-    },
-    active: true,
-    sortOrder: countSnap.data().count,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-    createdByUid: session.uid,
-    updatedByUid: session.uid,
-  });
 
   revalidatePath("/serviceable-areas");
   return { ok: true };
 }
 
-export async function setAreaActive(
-  id: string,
-  active: boolean,
-): Promise<Result> {
-  const session = await requireAdminSession();
+export async function setAreaActive(id: string, active: boolean): Promise<Result> {
+  await requireAdminSession();
   if (!id) return { ok: false, error: "Missing area id." };
-  await serverDb()
-    .collection("serviceableAreas")
-    .doc(id)
-    .update({
-      active: Boolean(active),
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedByUid: session.uid,
+
+  try {
+    await apiAuthed(`/admin/areas/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ active: Boolean(active) }),
     });
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    return toError(err);
+  }
+
   revalidatePath("/serviceable-areas");
   return { ok: true };
 }
@@ -243,7 +109,16 @@ export async function setAreaActive(
 export async function deleteServiceableArea(id: string): Promise<Result> {
   await requireAdminSession();
   if (!id) return { ok: false, error: "Missing area id." };
-  await serverDb().collection("serviceableAreas").doc(id).delete();
+
+  try {
+    // A 409 here means live properties still point at the area. The API's
+    // message says to deactivate instead, which is the whole answer.
+    await apiAuthed(`/admin/areas/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    return toError(err);
+  }
+
   revalidatePath("/serviceable-areas");
   return { ok: true };
 }

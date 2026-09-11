@@ -1,53 +1,28 @@
 // Compact "user mini-profile" card used by the report detail page.
-// Renders the user's avatar (when available), display name, and email
-// next to a link into /users/[uid] for the full admin view. Hidden when
-// the uid is null/empty — caller decides whether to show a fallback.
+//
+// ⚠️ NO LONGER FETCHES. It used to read `users/{uid}` and `userProfiles/{uid}`
+// per card, so the detail page cost four Firestore reads before it could
+// render. `GET /admin/reports/{id}` embeds both parties, and an account that
+// has since been erased arrives as null — which this renders as "unknown"
+// rather than as a card with a uid and nothing else.
 
-import 'server-only';
 import Link from 'next/link';
-import Image from 'next/image';
-import { serverDb } from '@/lib/firebase-admin';
+import type { Party } from '../_lib/types';
 
-interface Resolved {
-  displayName: string;
-  email: string | null;
-  photoUrl: string | null;
-}
-
-async function resolveUser(uid: string): Promise<Resolved> {
-  const db = serverDb();
-  const [userSnap, profileSnap] = await Promise.all([
-    db.collection('users').doc(uid).get(),
-    db.collection('userProfiles').doc(uid).get(),
-  ]);
-  const u = userSnap.data() ?? {};
-  const p = profileSnap.data() ?? {};
-  const displayName =
-    (typeof u.fullName === 'string' && u.fullName) ||
-    [u.name, u.surname].filter((x) => typeof x === 'string' && x).join(' ') ||
-    (typeof p.displayUsername === 'string' && p.displayUsername) ||
-    (typeof p.username === 'string' && p.username) ||
-    (typeof u.companyName === 'string' && u.companyName) ||
-    uid;
-  const email = typeof u.email === 'string' ? u.email : null;
-  const photoUrl =
-    (typeof p.photoUrl === 'string' && p.photoUrl) ||
-    (typeof u.profilePicture === 'string' && u.profilePicture) ||
-    null;
-  return { displayName, email, photoUrl };
-}
-
-export async function MiniProfile({
+export function MiniProfile({
+  party,
   uid,
   label,
   fallback,
 }: {
+  party: Party | null;
+  /** The id from the report, which survives the account it pointed at. */
   uid: string | null;
   label: string;
-  /** Shown when uid is null — e.g. "Reporter unknown". */
+  /** Shown when there is nobody to show — e.g. "Reporter unknown". */
   fallback: string;
 }) {
-  if (!uid) {
+  if (!party && !uid) {
     return (
       <section className="rounded-lg border border-dashed border-border bg-surface p-4">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -58,7 +33,8 @@ export async function MiniProfile({
     );
   }
 
-  const { displayName, email, photoUrl } = await resolveUser(uid);
+  const id = party?.id ?? uid!;
+  const displayName = party?.name || (party ? `@${party.username}` : id);
 
   return (
     <section className="rounded-lg border border-border bg-surface p-4">
@@ -66,48 +42,31 @@ export async function MiniProfile({
         {label}
       </p>
       <div className="mt-3 flex items-center gap-3">
-        <Avatar url={photoUrl} alt={displayName} />
+        <div
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-muted-foreground"
+          aria-hidden="true"
+        >
+          {displayName.replace(/^@/, '').charAt(0).toUpperCase() || '?'}
+        </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">
-            {displayName}
-          </p>
-          {email && (
-            <p className="truncate text-xs text-muted-foreground">{email}</p>
+          <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
+          {party?.name && (
+            <p className="truncate text-xs text-muted-foreground">@{party.username}</p>
           )}
-          <p className="truncate font-mono text-[11px] text-muted-foreground">
-            {uid}
-          </p>
+          {/* The account is gone but the report still names it — say which,
+              rather than rendering a card that looks like a live user. */}
+          {!party && (
+            <p className="truncate text-xs text-muted-foreground">{fallback}</p>
+          )}
+          <p className="truncate font-mono text-[11px] text-muted-foreground">{id}</p>
         </div>
         <Link
-          href={`/users/${uid}`}
+          href={`/users/${id}`}
           className="shrink-0 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
         >
-          /users/{uid.slice(0, 6)}…
+          /users/{id.slice(0, 6)}…
         </Link>
       </div>
     </section>
-  );
-}
-
-function Avatar({ url, alt }: { url: string | null; alt: string }) {
-  if (!url) {
-    return (
-      <div
-        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-muted-foreground"
-        aria-hidden="true"
-      >
-        {alt.charAt(0).toUpperCase() || '?'}
-      </div>
-    );
-  }
-  return (
-    <Image
-      src={url}
-      alt={alt}
-      width={48}
-      height={48}
-      className="h-12 w-12 shrink-0 rounded-full object-cover"
-      unoptimized
-    />
   );
 }

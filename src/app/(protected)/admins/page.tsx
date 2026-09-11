@@ -1,108 +1,41 @@
-// /admins — list of platform admins + grant/revoke + audit log.
+// /admins — who can sign in to this panel, and the history of that changing.
 //
-// Reads:
-//   - Lists Firebase Auth users with the 'admin' role on customClaims.
-//     The Auth SDK doesn't index by claim, so we paginate users and
-//     filter client-side. For a small admin team this is fine; for >100
-//     admins we'd want a denormalized index collection.
-//   - Reads the most recent adminRoleChanges entries for the audit log.
+// ⚠️ READ-ONLY, AND THAT IS THE DESIGN. This page used to grant and revoke the
+// role itself, by writing a Firebase custom claim. The new API has no endpoint
+// for it and will not get one: `role = ADMIN` is unreachable from the request
+// path on purpose, because an API that can promote its own caller will
+// eventually promote a stranger's. Granting happens in a shell on the box, by
+// someone who already holds the database credentials — see
+// src/scripts/grant-admin.ts in the backend.
 //
-// Mutations live in ../managed/actions.ts (grantAdminRoleByEmail,
-// revokeAdminRole). They're co-located there because they share the
-// recordAdminAction audit helper + the same auth/firebase-admin setup;
-// only the surface UI lives here.
+// What this page does instead is answer the two questions the buttons were
+// there to serve: who has the role right now, and who changed that.
 
 import 'server-only';
-import type { Timestamp } from 'firebase-admin/firestore';
-import { serverAuth, serverDb } from '@/lib/firebase-admin';
+import Link from 'next/link';
+import { apiAuthed } from '@/lib/session';
 import { requireAdminSession } from '@/lib/auth';
-import { GrantAdminForm } from './_components/grant-admin-form';
-import { RevokeAdminButton } from './_components/revoke-admin-button';
 import { getT } from '@/i18n/server';
+import type { TFunc } from '@/i18n/t';
 
-interface AdminUser {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  createdAt: Date | null;
-}
+/** The three actions the grant-admin script writes. */
+const ROLE_ACTIONS = 'user.grant_admin,user.revoke_admin,user.create_admin';
 
-interface RoleChange {
+interface ApiAdmin {
   id: string;
-  action: 'grant' | 'revoke' | 'bootstrap' | string;
-  targetUid: string;
-  targetEmail: string | null;
-  byUid: string | null;
-  at: Date | null;
+  email: string;
+  username: string;
+  fullName: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
 }
 
-function tsToDate(value: unknown): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  if (typeof value === 'object' && value !== null && 'toDate' in value) {
-    try {
-      return (value as Timestamp).toDate();
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-async function loadAdmins(): Promise<AdminUser[]> {
-  const auth = serverAuth();
-  const out: AdminUser[] = [];
-  let pageToken: string | undefined;
-  // Pagination caps at 1000 per page; the typical admin team is small but
-  // we still loop in case there are many users in the project.
-  // We bail after 10 pages (10k users) to avoid runaway scans.
-  for (let i = 0; i < 10; i += 1) {
-    const result = await auth.listUsers(1000, pageToken);
-    for (const u of result.users) {
-      const roles = Array.isArray(u.customClaims?.roles)
-        ? (u.customClaims!.roles as unknown[])
-        : [];
-      if (roles.includes('admin')) {
-        out.push({
-          uid: u.uid,
-          email: u.email ?? null,
-          displayName: u.displayName ?? null,
-          createdAt: u.metadata.creationTime
-            ? new Date(u.metadata.creationTime)
-            : null,
-        });
-      }
-    }
-    if (!result.pageToken) break;
-    pageToken = result.pageToken;
-  }
-  out.sort((a, b) =>
-    (a.email ?? a.uid).localeCompare(b.email ?? b.uid)
-  );
-  return out;
-}
-
-async function loadRoleChanges(limit = 25): Promise<RoleChange[]> {
-  const db = serverDb();
-  // adminRoleChanges has no schema-enforced ordering field; existing
-  // entries are written with `at: serverTimestamp`, so order by that desc.
-  const snap = await db
-    .collection('adminRoleChanges')
-    .orderBy('at', 'desc')
-    .limit(limit)
-    .get();
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return {
-      id: d.id,
-      action: typeof data.action === 'string' ? data.action : 'unknown',
-      targetUid: typeof data.targetUid === 'string' ? data.targetUid : '',
-      targetEmail:
-        typeof data.targetEmail === 'string' ? data.targetEmail : null,
-      byUid: typeof data.byUid === 'string' ? data.byUid : null,
-      at: tsToDate(data.at),
-    };
-  });
+interface ApiAuditRow {
+  id: string;
+  action: string;
+  createdAt: string;
+  actor: { id: string; email: string | null; username: string } | null;
+  target: { id: string; email: string | null; username: string } | null;
 }
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -113,9 +46,28 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
 });
 
-export default async function AdminsPage() {
-  const adminSession = await requireAdminSession();
+function fmtAt(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : dateFormatter.format(d);
+}
 
+async function loadAdmins(): Promise<ApiAdmin[]> {
+  // The whole admin team fits in one page by a wide margin; if it ever does
+  // not, that is a different screen, not a bigger limit.
+  const res = await apiAuthed<{ items: ApiAdmin[] }>('/admin/users?role=admin&limit=100');
+  return res?.items ?? [];
+}
+
+async function loadRoleChanges(): Promise<ApiAuditRow[]> {
+  const res = await apiAuthed<{ items: ApiAuditRow[] }>(
+    `/admin/audit?action=${encodeURIComponent(ROLE_ACTIONS)}&limit=25`,
+  );
+  return res?.items ?? [];
+}
+
+export default async function AdminsPage() {
+  const session = await requireAdminSession();
   const [t, admins, roleChanges] = await Promise.all([
     getT(),
     loadAdmins(),
@@ -124,18 +76,13 @@ export default async function AdminsPage() {
 
   return (
     <div className="space-y-8">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            {t('admins.title')}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t('admins.subtitlePre')}{' '}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">admin</code>{' '}
-            {t('admins.subtitlePost')}
-          </p>
-        </div>
-        <GrantAdminForm />
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          {t('admins.title')}
+        </h1>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          {t('admins.subtitle')}
+        </p>
       </header>
 
       <section>
@@ -149,13 +96,13 @@ export default async function AdminsPage() {
             </li>
           )}
           {admins.map((a) => {
-            const isSelf = a.uid === adminSession.uid;
+            const isSelf = a.id === session.uid;
             return (
-              <li key={a.uid}>
+              <li key={a.id}>
                 <article className="flex items-center gap-4 rounded-lg border border-border bg-surface p-4">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-foreground">
-                      {a.email ?? t('admins.noEmail')}
+                      {a.email || t('admins.noEmail')}
                       {isSelf && (
                         <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                           {t('admins.you')}
@@ -163,27 +110,30 @@ export default async function AdminsPage() {
                       )}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {a.displayName ?? '—'}
-                      {a.createdAt && (
-                        <span> {t('admins.joinedOn', { date: dateFormatter.format(a.createdAt) })}</span>
+                      {a.fullName ?? `@${a.username}`}
+                      <span> {t('admins.joinedOn', { date: fmtAt(a.createdAt) })}</span>
+                      {a.lastSeenAt && (
+                        <span> {t('admins.lastSeen', { date: fmtAt(a.lastSeenAt) })}</span>
                       )}
                     </p>
                     <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                      {a.uid}
+                      {a.id}
                     </p>
                   </div>
-                  {!isSelf && (
-                    <RevokeAdminButton
-                      uid={a.uid}
-                      email={a.email ?? a.uid}
-                    />
-                  )}
+                  <Link
+                    href={`/users/${a.id}`}
+                    className="shrink-0 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
+                  >
+                    {t('common.view')}
+                  </Link>
                 </article>
               </li>
             );
           })}
         </ul>
       </section>
+
+      <HowToGrant t={t} />
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -196,36 +146,74 @@ export default async function AdminsPage() {
             </li>
           )}
           {roleChanges.map((r) => (
-            <li
-              key={r.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface p-3 text-sm"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-foreground">
-                  <span
-                    className={`mr-2 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                      r.action === 'grant'
-                        ? 'bg-primary/10 text-primary'
-                        : r.action === 'revoke'
-                          ? 'bg-destructive/10 text-destructive'
-                          : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {r.action}
-                  </span>
-                  {r.targetEmail ?? r.targetUid}
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                  {r.byUid ? t('admins.byUid', { uid: r.byUid }) : t('admins.bySystem')}
-                </p>
-              </div>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {r.at ? dateFormatter.format(r.at) : '—'}
-              </span>
-            </li>
+            <RoleChangeRow key={r.id} row={r} t={t} />
           ))}
         </ul>
       </section>
     </div>
+  );
+}
+
+function HowToGrant({ t }: { t: TFunc }) {
+  return (
+    <section className="rounded-lg border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-foreground">{t('admins.howToTitle')}</h2>
+      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+        {t('admins.howToBody')}
+      </p>
+      <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {t('admins.howToStep')}
+      </p>
+      <pre className="mt-1.5 overflow-x-auto rounded-md bg-background p-3 font-mono text-xs text-foreground">
+        sudo docker compose run --rm app npm run admin:grant -- someone@roomeapp.it
+      </pre>
+      <p className="mt-2 text-xs text-muted-foreground">{t('admins.howToNote')}</p>
+    </section>
+  );
+}
+
+function RoleChangeRow({ row, t }: { row: ApiAuditRow; t: TFunc }) {
+  const kind = row.action.endsWith('revoke_admin')
+    ? 'revoke'
+    : row.action.endsWith('create_admin')
+      ? 'create'
+      : 'grant';
+  const label =
+    kind === 'revoke'
+      ? t('admins.actionRevoke')
+      : kind === 'create'
+        ? t('admins.actionCreate')
+        : t('admins.actionGrant');
+
+  // The script attributes a grant to the account that received it, because a
+  // shell has no signed-in admin — so actor and target are the same person
+  // there, and saying "by themselves" would be misleading.
+  const bySelf = row.actor?.id === row.target?.id;
+
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface p-3 text-sm">
+      <div className="min-w-0">
+        <p className="truncate text-foreground">
+          <span
+            className={`mr-2 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+              kind === 'revoke'
+                ? 'bg-destructive/10 text-destructive'
+                : 'bg-primary/10 text-primary'
+            }`}
+          >
+            {label}
+          </span>
+          {row.target?.email || row.target?.username || row.target?.id || '—'}
+        </p>
+        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+          {bySelf
+            ? t('admins.bySystem')
+            : t('admins.by', {
+                who: row.actor?.email || row.actor?.username || row.actor?.id || '—',
+              })}
+        </p>
+      </div>
+      <span className="shrink-0 text-xs text-muted-foreground">{fmtAt(row.createdAt)}</span>
+    </li>
   );
 }

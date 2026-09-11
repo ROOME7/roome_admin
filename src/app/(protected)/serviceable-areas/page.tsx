@@ -1,34 +1,50 @@
-// /serviceable-areas — admin-curated allowlist of cities where Roome operates.
+// /serviceable-areas — the admin-curated allowlist of cities Roome operates in.
 //
-// Tenants pick desired areas from the ACTIVE entries here (Flutter app, built
-// by the app team — see docs/serviceable-areas-integration.md). When a
-// landlord publishes in one of these areas, matched tenants get a push (Cloud
-// Function, also in that doc). This page only manages the source-of-truth
-// allowlist; the matching/notification logic lives elsewhere.
+// Tenants pick their desired areas from the ACTIVE entries here; when a
+// landlord publishes in one, matched tenants get a push. This page manages the
+// allowlist itself — the matching lives in the API.
 //
-// Server component: loads the list, hands it to the client <AreasBoard>
+// Server Component: loads the board and hands it to the client <AreasBoard>
 // (map + list + add modal).
 
 import "server-only";
-import type { Timestamp } from "firebase-admin/firestore";
-import { serverDb } from "@/lib/firebase-admin";
+import { apiAuthed } from "@/lib/session";
 import { requireAdminSession } from "@/lib/auth";
 import { getT } from "@/i18n/server";
-import type { ServiceableArea, BoundingBox } from "@/lib/serviceable-areas";
+import type {
+  BoundingBox,
+  ServiceableArea,
+  UnservedDemand,
+} from "@/lib/serviceable-areas";
 import { AreasBoard } from "./_components/areas-board";
 
-function tsToMillis(value: unknown): number | null {
-  if (!value) return null;
-  if (typeof value === "object" && value !== null && "toDate" in value) {
-    try {
-      return (value as Timestamp).toDate().getTime();
-    } catch {
-      return null;
-    }
-  }
-  return null;
+/** One row of `GET /admin/areas`, before the client-safe mapping below. */
+interface ApiArea {
+  id: string;
+  name: string;
+  displayName: string;
+  slug: string;
+  kind: string;
+  level: number;
+  parentAreaId: string | null;
+  province: string | null;
+  region: string | null;
+  country: string | null;
+  lat: number | null;
+  lng: number | null;
+  boundingBox: unknown;
+  active: boolean;
+  sortOrder: number;
+  createdAt: string | null;
+  propertyCount: number;
+  interestedTenants: number;
 }
 
+/**
+ * `boundingBox` is a JSON column, so it arrives as whatever was stored. The
+ * map draws a rectangle from it and four numbers is the only version of that
+ * which means anything — a partial box would render somewhere in the sea.
+ */
 function asBoundingBox(v: unknown): BoundingBox | null {
   if (!v || typeof v !== "object") return null;
   const b = v as Record<string, unknown>;
@@ -42,43 +58,46 @@ function asBoundingBox(v: unknown): BoundingBox | null {
   };
 }
 
-async function loadAreas(): Promise<ServiceableArea[]> {
-  const snap = await serverDb()
-    .collection("serviceableAreas")
-    .orderBy("sortOrder", "asc")
-    .get();
-  return snap.docs.map((d) => {
-    const x = d.data();
-    return {
-      id: d.id,
-      name: typeof x.name === "string" ? x.name : d.id,
-      displayName:
-        typeof x.displayName === "string"
-          ? x.displayName
-          : String(x.name ?? d.id),
-      slug: typeof x.slug === "string" ? x.slug : d.id,
-      kind: x.kind === "zone" ? "zone" : "city",
-      parentAreaId: typeof x.parentAreaId === "string" ? x.parentAreaId : null,
-      ancestorIds: Array.isArray(x.ancestorIds)
-        ? x.ancestorIds.filter((s): s is string => typeof s === "string")
-        : [],
-      level: typeof x.level === "number" ? x.level : 0,
-      province: typeof x.province === "string" ? x.province : "",
-      region: typeof x.region === "string" ? x.region : "",
-      country: typeof x.country === "string" ? x.country : "IT",
-      lat: typeof x.lat === "number" ? x.lat : null,
-      lng: typeof x.lng === "number" ? x.lng : null,
-      boundingBox: asBoundingBox(x.boundingBox),
-      active: x.active !== false,
-      sortOrder: typeof x.sortOrder === "number" ? x.sortOrder : 0,
-      createdAt: tsToMillis(x.createdAt),
-    };
-  });
+async function loadBoard(): Promise<{
+  areas: ServiceableArea[];
+  unservedDemand: UnservedDemand[];
+}> {
+  const res = await apiAuthed<{
+    items: ApiArea[];
+    unservedDemand: UnservedDemand[];
+  }>("/admin/areas");
+
+  if (!res) return { areas: [], unservedDemand: [] };
+
+  return {
+    areas: res.items.map((a) => ({
+      id: a.id,
+      name: a.name,
+      displayName: a.displayName,
+      slug: a.slug,
+      kind: a.kind === "zone" ? "zone" : "city",
+      parentAreaId: a.parentAreaId,
+      level: a.level,
+      province: a.province ?? "",
+      region: a.region ?? "",
+      country: a.country ?? "IT",
+      lat: a.lat,
+      lng: a.lng,
+      boundingBox: asBoundingBox(a.boundingBox),
+      active: a.active,
+      sortOrder: a.sortOrder,
+      // Epoch ms: a Date cannot cross into a Client Component.
+      createdAt: a.createdAt ? new Date(a.createdAt).getTime() : null,
+      propertyCount: a.propertyCount,
+      interestedTenants: a.interestedTenants,
+    })),
+    unservedDemand: res.unservedDemand ?? [],
+  };
 }
 
 export default async function ServiceableAreasPage() {
   await requireAdminSession();
-  const [t, areas] = await Promise.all([getT(), loadAreas()]);
+  const [t, { areas, unservedDemand }] = await Promise.all([getT(), loadBoard()]);
 
   return (
     <div className="space-y-6">
@@ -91,7 +110,7 @@ export default async function ServiceableAreasPage() {
         </p>
       </header>
 
-      <AreasBoard areas={areas} />
+      <AreasBoard areas={areas} unservedDemand={unservedDemand} />
     </div>
   );
 }

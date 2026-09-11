@@ -1,21 +1,26 @@
 // /moderation/[reportId] — single-report detail view.
 //
-// Surfaces the full report payload (no truncation), the reporter +
-// reported-account mini-profiles with deep-links into /users/[uid], and
-// the same action buttons that live on the list row. Doc reference:
+// Surfaces the full report payload (no truncation), the reporter and
+// reported-account mini-profiles with deep links into /users/[uid], and the
+// same action buttons that live on the list row. Doc reference:
 // docs/architecture/app-store-rejection-2026-05-24.md §Issue 2(b).
+//
+// One call: `GET /admin/reports/{id}` embeds both parties, so this page no
+// longer reads two Firestore documents per side.
 
 import 'server-only';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { serverDb } from '@/lib/firebase-admin';
+import { apiAuthed } from '@/lib/session';
+import { requireAdminSession } from '@/lib/auth';
 import { getT } from '@/i18n/server';
 import { StatusBadge } from '../_components/status-badge';
 import { MiniProfile } from '../_components/mini-profile';
 import { ReportActions } from '../_components/report-actions';
+import type { ApiReport } from '../_lib/types';
 import {
   formatDate,
-  mapReportDoc,
+  mapApiReport,
   reasonLabel,
   targetTypeLabel,
 } from '../_lib/format';
@@ -23,12 +28,14 @@ import {
 type Params = Promise<{ reportId: string }>;
 
 export default async function ReportDetailPage({ params }: { params: Params }) {
+  await requireAdminSession();
   const { reportId } = await params;
-  const db = serverDb();
-  const snap = await db.collection('reports').doc(reportId).get();
-  if (!snap.exists) notFound();
+  // `apiAuthed` turns a 404 into null — a report id nobody has is a not-found
+  // page, not an error page.
+  const row = await apiAuthed<ApiReport>(`/admin/reports/${encodeURIComponent(reportId)}`);
+  if (!row) notFound();
   const t = await getT();
-  const report = mapReportDoc(snap.id, snap.data() ?? {});
+  const report = mapApiReport(row);
 
   return (
     <div className="space-y-6">
@@ -58,11 +65,13 @@ export default async function ReportDetailPage({ params }: { params: Params }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <MiniProfile
+          party={report.reporter}
           uid={report.reporterUid || null}
           label={t('moderation.detailReporter')}
           fallback={t('moderation.reporterUnknown')}
         />
         <MiniProfile
+          party={report.targetOwner}
           uid={report.targetOwnerUid}
           label={t('moderation.detailTarget')}
           fallback={t('moderation.targetUnknown')}

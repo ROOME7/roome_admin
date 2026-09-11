@@ -1,85 +1,103 @@
 // /moderation — UGC report queue (App Store guideline 1.2).
 //
-// Server Component. Reads `reports/{reportId}` via firebase-admin, which
-// bypasses Firestore Rules. (protected)/layout has already verified the
-// caller is an admin before this page runs. Server Actions in ./actions.ts
-// re-verify on every call.
+// Server Component. `GET /admin/reports` is the queue; (protected)/layout has
+// already verified the caller is an admin, and the API checks again.
+//
+// ⚠️ THIS USED TO READ EVERY REPORT EVER FILED, unpaged, and count and filter
+// them in memory. That works until the queue is big enough to matter, which is
+// exactly when a moderation screen stops being optional. The API filters,
+// counts and pages.
 
 import 'server-only';
 import Link from 'next/link';
-import { serverDb } from '@/lib/firebase-admin';
+import { apiAuthed } from '@/lib/session';
+import { requireAdminSession } from '@/lib/auth';
 import { StatusBadge } from './_components/status-badge';
 import { FilterTabs } from './_components/filter-tabs';
 import { ReportActions } from './_components/report-actions';
 import {
   asFilter,
+  type ApiReport,
   type FilterValue,
   type Report,
-  type ReportStatus,
 } from './_lib/types';
 import {
   formatDate,
-  mapReportDoc,
+  mapApiReport,
   reasonLabel,
+  statusToApi,
   targetTypeLabel,
 } from './_lib/format';
 import { getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
 
-const STATUS_ORDER_FOR_ALL: ReportStatus[] = [
-  'open',
-  'reviewing',
-  'resolved',
-  'dismissed',
-];
+const PAGE_SIZE = 50;
 
-async function loadReports(filter: FilterValue): Promise<{
+const EMPTY_COUNTS: Record<FilterValue, number> = {
+  open: 0,
+  reviewing: 0,
+  resolved: 0,
+  dismissed: 0,
+  all: 0,
+};
+
+async function loadReports(
+  filter: FilterValue,
+  cursor: string,
+): Promise<{
   list: Report[];
   counts: Record<FilterValue, number>;
+  nextCursor: string | null;
 }> {
-  const db = serverDb();
-  const snap = await db
-    .collection('reports')
-    .orderBy('serverCreatedAt', 'desc')
-    .get();
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+  // The API defaults to open + reviewing — the queue. Every other view has to
+  // ask for its statuses by name, including "all".
+  params.set(
+    'status',
+    filter === 'all'
+      ? 'open,reviewing,actioned,dismissed'
+      : filter === 'open'
+        ? 'open'
+        : statusToApi(filter),
+  );
+  if (cursor) params.set('cursor', cursor);
 
-  const all: Report[] = snap.docs.map((doc) => mapReportDoc(doc.id, doc.data()));
+  const res = await apiAuthed<{
+    items: ApiReport[];
+    counts: { open: number; reviewing: number; actioned: number; dismissed: number; all: number };
+    page: { cursor: string | null; hasMore: boolean };
+  }>(`/admin/reports?${params.toString()}`);
 
-  const counts: Record<FilterValue, number> = {
-    open: 0,
-    reviewing: 0,
-    resolved: 0,
-    dismissed: 0,
-    all: all.length,
+  if (!res) return { list: [], counts: EMPTY_COUNTS, nextCursor: null };
+
+  return {
+    list: res.items.map(mapApiReport),
+    counts: {
+      open: res.counts.open,
+      reviewing: res.counts.reviewing,
+      // The tab is called "resolved" here and `actioned` on the wire.
+      resolved: res.counts.actioned,
+      dismissed: res.counts.dismissed,
+      all: res.counts.all,
+    },
+    nextCursor: res.page.hasMore ? res.page.cursor : null,
   };
-  for (const r of all) counts[r.status]++;
-
-  const list = filter === 'all' ? all : all.filter((r) => r.status === filter);
-
-  if (filter === 'all') {
-    list.sort((a, b) => {
-      const ai = STATUS_ORDER_FOR_ALL.indexOf(a.status);
-      const bi = STATUS_ORDER_FOR_ALL.indexOf(b.status);
-      if (ai !== bi) return ai - bi;
-      return (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0);
-    });
-  }
-
-  return { list, counts };
 }
 
-type SearchParams = Promise<{ filter?: string }>;
+type SearchParams = Promise<{ filter?: string; cursor?: string }>;
 
 export default async function ModerationPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
+  await requireAdminSession();
   const params = await searchParams;
   const filter = asFilter(params.filter);
-  const [t, { list, counts }] = await Promise.all([
+  const cursor = typeof params.cursor === 'string' ? params.cursor : '';
+  const [t, { list, counts, nextCursor }] = await Promise.all([
     getT(),
-    loadReports(filter),
+    loadReports(filter, cursor),
   ]);
 
   return (
@@ -98,13 +116,27 @@ export default async function ModerationPage({
       {list.length === 0 ? (
         <EmptyState filter={filter} t={t} />
       ) : (
-        <ul className="space-y-4">
-          {list.map((report) => (
-            <li key={report.id}>
-              <ReportRow report={report} t={t} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-4">
+            {list.map((report) => (
+              <li key={report.id}>
+                <ReportRow report={report} t={t} />
+              </li>
+            ))}
+          </ul>
+          {/* A link, not a button: paging must survive a page reload, and the
+              queue is a place people come back to. */}
+          {nextCursor && (
+            <div className="flex justify-center">
+              <Link
+                href={`/moderation?filter=${filter}&cursor=${encodeURIComponent(nextCursor)}`}
+                className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+              >
+                {t('common.loadMore')}
+              </Link>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

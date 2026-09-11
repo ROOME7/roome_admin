@@ -1,15 +1,18 @@
 // Shared types + helpers for the Serviceable Areas feature.
 //
-// No 'server-only' / firebase-admin imports here, so both Server Components
-// and Client Components can import the types. The Firestore reads/writes and
-// the OpenStreetMap (Nominatim) lookup live in the route's actions.ts.
+// No 'server-only' import here, so both Server and Client Components can use
+// the types. The API calls live in the route's actions.ts.
 //
-// SCHEMA — `serviceableAreas/{areaId}` (doc id = slug for cities):
-// Designed for scale. Today every area is a top-level city (kind:'city',
-// level:0, parentAreaId:null), but the shape supports a hierarchy so we can
-// add sub-city ZONES later (kind:'zone', level:1, parentAreaId:<citySlug>,
-// ancestorIds:[<citySlug>]) WITHOUT a migration — an array-contains query on
-// `ancestorIds` then yields a whole city's zones.
+// ⚠️ THE SHAPE IS THE API'S NOW, not a Firestore document's. `GET
+// /admin/areas` returns every area — switched-off ones included — each with
+// how much is riding on it: live properties and interested tenants. Those
+// counts are the point of the screen. Deactivating a city with 40 properties
+// is a different decision from deactivating one with none, and the old board
+// showed neither.
+//
+// The hierarchy fields (`kind`, `level`, `parentAreaId`) are carried through
+// unused: every area today is a top-level city, and the column exists so
+// sub-city zones can arrive without a migration.
 
 export interface BoundingBox {
   minLat: number;
@@ -25,7 +28,6 @@ export interface ServiceableArea {
   slug: string;
   kind: "city" | "zone";
   parentAreaId: string | null;
-  ancestorIds: string[];
   level: number;
   province: string;
   region: string;
@@ -35,8 +37,24 @@ export interface ServiceableArea {
   boundingBox: BoundingBox | null;
   active: boolean;
   sortOrder: number;
-  /** Epoch ms (Timestamps are serialized before crossing to the client). */
+  /** Epoch ms — Dates are serialized before crossing to the client. */
   createdAt: number | null;
+  /** Live properties in this area. What makes removing it expensive. */
+  propertyCount: number;
+  /** Tenants who said they want to live here. */
+  interestedTenants: number;
+}
+
+/**
+ * A city tenants asked for that Roome does not cover.
+ *
+ * These exist because tenant interest is stored as a plain slug rather than a
+ * foreign key, so a request for somewhere unserved survives instead of being
+ * rejected at write time. It is the only expansion signal the product has.
+ */
+export interface UnservedDemand {
+  slug: string;
+  tenants: number;
 }
 
 /** A place returned by the OSM lookup, ready to be turned into an area. */

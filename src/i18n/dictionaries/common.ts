@@ -31,6 +31,7 @@ const it = {
   required: 'Obbligatorio',
   optional: 'Facoltativo',
   noResults: 'Nessun risultato',
+  loadMore: 'Carica altri',
   // Account / request statuses
   statusActive: 'Attivo',
   statusSuspended: 'Sospeso',
@@ -73,6 +74,7 @@ const en: Record<keyof typeof it, string> = {
   required: 'Required',
   optional: 'Optional',
   noResults: 'No results',
+  loadMore: 'Load more',
   statusActive: 'Active',
   statusSuspended: 'Suspended',
   statusArchived: 'Archived',

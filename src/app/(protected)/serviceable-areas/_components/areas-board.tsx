@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useT } from "@/i18n/client";
-import type { ServiceableArea } from "@/lib/serviceable-areas";
+import type { ServiceableArea, UnservedDemand } from "@/lib/serviceable-areas";
 import { AreaRowActions } from "./area-row-actions";
 import { AddAreaDialog } from "./add-area-dialog";
 
@@ -24,7 +24,13 @@ const AreasMap = dynamic(() => import("./areas-map"), {
   ),
 });
 
-export function AreasBoard({ areas }: { areas: ServiceableArea[] }) {
+export function AreasBoard({
+  areas,
+  unservedDemand,
+}: {
+  areas: ServiceableArea[];
+  unservedDemand: UnservedDemand[];
+}) {
   const t = useT();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -114,6 +120,22 @@ export function AreasBoard({ areas }: { areas: ServiceableArea[] }) {
                           {[a.province, a.region].filter(Boolean).join(" · ") ||
                             "—"}
                         </p>
+                        {/* What is riding on this area. Deactivating a city
+                            with properties in it is a different decision from
+                            deactivating an empty one, and the board used to
+                            show the same row either way. */}
+                        <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                          <span>
+                            {t("serviceableAreas.propertyCount", {
+                              count: a.propertyCount,
+                            })}
+                          </span>
+                          <span>
+                            {t("serviceableAreas.interestedTenants", {
+                              count: a.interestedTenants,
+                            })}
+                          </span>
+                        </p>
                         <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                           {a.id}
                         </p>
@@ -131,6 +153,33 @@ export function AreasBoard({ areas }: { areas: ServiceableArea[] }) {
           )}
         </div>
       </div>
+
+      {/* The expansion signal: cities tenants asked for that Roome does not
+          cover. Only visible because tenant interest is stored as a slug
+          rather than a foreign key, so an unserved request survives. */}
+      {unservedDemand.length > 0 && (
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("serviceableAreas.unservedTitle")}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("serviceableAreas.unservedSubtitle")}
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {unservedDemand.map((d) => (
+              <li
+                key={d.slug}
+                className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs"
+              >
+                <span className="font-medium text-foreground">{d.slug}</span>
+                <span className="text-muted-foreground">
+                  {t("serviceableAreas.interestedTenants", { count: d.tenants })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {addOpen && <AddAreaDialog onClose={() => setAddOpen(false)} />}
     </div>

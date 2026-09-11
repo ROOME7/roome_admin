@@ -139,13 +139,28 @@ export default async function UsersPage({
           </p>
         </section>
       ) : (
-        <ul className="space-y-2">
-          {list.map((u) => (
-            <li key={u.uid}>
-              <UserRowCard user={u} t={t} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-2">
+            {list.map((u) => (
+              <li key={u.uid}>
+                <UserRowCard user={u} t={t} />
+              </li>
+            ))}
+          </ul>
+          {/* A link, not a button: the next page has to survive a reload, and
+              a cursor in the URL is also how somebody shares what they are
+              looking at. */}
+          {nextCursor && (
+            <div className="flex justify-center">
+              <Link
+                href={`/users?role=${role}${q ? `&q=${encodeURIComponent(q)}` : ''}&cursor=${encodeURIComponent(nextCursor)}`}
+                className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+              >
+                {t('common.loadMore')}
+              </Link>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

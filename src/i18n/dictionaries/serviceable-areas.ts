@@ -21,6 +21,13 @@ const it = {
   removeTitle: "Rimuovi {name}",
   confirmRemove: "Conferma",
   removing: "Rimozione…",
+  // Counts on each row — what is riding on the area.
+  propertyCount: "{count} immobili",
+  interestedTenants: "{count} inquilini interessati",
+  // Cities tenants asked for that Roome does not cover.
+  unservedTitle: "Domanda non servita",
+  unservedSubtitle:
+    "Città richieste dagli inquilini in cui Roome non è ancora attivo, dalla più richiesta.",
 };
 
 const en: Record<keyof typeof it, string> = {
@@ -45,6 +52,11 @@ const en: Record<keyof typeof it, string> = {
   removeTitle: "Remove {name}",
   confirmRemove: "Confirm",
   removing: "Removing…",
+  propertyCount: "{count} properties",
+  interestedTenants: "{count} interested tenants",
+  unservedTitle: "Unserved demand",
+  unservedSubtitle:
+    "Cities tenants asked for that Roome does not cover yet, most-wanted first.",
 };
 
 export const serviceableAreas = { it, en };

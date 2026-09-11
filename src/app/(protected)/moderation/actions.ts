@@ -2,29 +2,32 @@
 
 // Server Actions for the UGC Moderation flow (App Store guideline 1.2).
 //
-// SECURITY MODEL (mirror of supervision/actions.ts):
+// SECURITY MODEL:
 //   1. Every action re-verifies the admin session via requireAdminSession().
-//      Server Actions are a separate entry point from the page server-
-//      component so we cannot rely on (protected)/layout's gate alone.
-//   2. reportId is bound server-side via .bind() in the parent so a malicious
-//      client cannot retarget the action.
-//   3. firebase-admin bypasses Firestore rules — the security boundary IS the
-//      admin-session check in step (1).
-//   4. Pre-flight: the report must exist. Transitions are validated against
-//      the current status so concurrent reviewers don't double-act.
-//   5. Audit: each successful action writes to `adminAccountActions` via
-//      recordAdminAction (Schema v2 §4.23) — `targetUid` is the reported
-//      account's owner so the per-user activity dialog surfaces it.
-//   6. revalidatePath at the end so the list + detail page refresh.
+//      Server Actions are a separate entry point from the page, so the
+//      (protected)/layout gate does not cover them.
+//   2. reportId is bound server-side via .bind() in the parent, so a client
+//      cannot retarget the action.
+//   3. THE REAL BOUNDARY IS THE API. These actions hold an admin's bearer
+//      token and `PATCH /admin/reports/:id` re-checks the role. When this file
+//      talked to Firestore through firebase-admin it bypassed every rule, and
+//      the session check here was the only thing standing between a visitor
+//      and the whole database.
+//   4. revalidatePath so the list and the detail page both refresh.
+//
+// ⚠️ THE TRANSITION GUARD AND THE AUDIT ROW MOVED TO THE SERVER. This file
+// used to read the report, decide whether the transition was legal, write it,
+// and then write its own audit row — four round trips that another moderator
+// could interleave with. The API does it in one.
 
 import 'server-only';
 import { revalidatePath } from 'next/cache';
-import { Timestamp } from 'firebase-admin/firestore';
 import { requireAdminSession } from '@/lib/auth';
-import { serverDb } from '@/lib/firebase-admin';
-import { recordAdminAction, type AdminAction } from '@/lib/audit';
+import { apiAuthed, ApiCallError, AuthRequiredError } from '@/lib/session';
+import { statusToApi } from './_lib/format';
+import type { ReportStatus } from './_lib/types';
 
-const MAX_ACTION_TAKEN_LENGTH = 2_000;
+const MAX_RESOLUTION_LENGTH = 1_000;
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -33,76 +36,36 @@ function clampString(input: FormDataEntryValue | null, max: number): string {
   return input.trim().slice(0, max);
 }
 
-interface TransitionInput {
-  reportId: string;
-  next: 'reviewing' | 'resolved' | 'dismissed';
-  /** Allowed prior statuses for the transition. */
-  from: ReadonlyArray<'open' | 'reviewing'>;
-  /** Free-text note recorded alongside the action. */
-  actionTaken: string | null;
-  adminUid: string;
-  auditAction: AdminAction;
-}
+async function transitionReport(
+  reportId: string,
+  next: Exclude<ReportStatus, 'open'>,
+  formData: FormData,
+): Promise<ActionResult> {
+  await requireAdminSession();
+  if (!reportId) return { ok: false, error: 'Missing report id.' };
 
-async function transitionReport({
-  reportId,
-  next,
-  from,
-  actionTaken,
-  adminUid,
-  auditAction,
-}: TransitionInput): Promise<ActionResult> {
-  if (!reportId || typeof reportId !== 'string') {
-    return { ok: false, error: 'Missing report id.' };
+  const resolution = clampString(formData.get('actionTaken'), MAX_RESOLUTION_LENGTH);
+
+  try {
+    await apiAuthed(`/admin/reports/${encodeURIComponent(reportId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: statusToApi(next),
+        // Omit rather than send an empty string: the field is optional and
+        // `""` would overwrite a note a colleague left a minute ago.
+        ...(resolution ? { resolution } : {}),
+      }),
+    });
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    if (err instanceof ApiCallError) {
+      return {
+        ok: false,
+        error: err.status === 404 ? 'Report not found.' : err.message,
+      };
+    }
+    throw err;
   }
-
-  const db = serverDb();
-  const reportRef = db.collection('reports').doc(reportId);
-
-  const snap = await reportRef.get();
-  if (!snap.exists) {
-    return { ok: false, error: 'Report not found.' };
-  }
-  const data = snap.data() ?? {};
-  const current = typeof data.status === 'string' ? data.status : 'open';
-  if (!from.includes(current as 'open' | 'reviewing')) {
-    return {
-      ok: false,
-      error: `Report is ${current}; cannot transition to ${next}.`,
-    };
-  }
-
-  // For terminal states (resolved / dismissed) stamp the resolution
-  // metadata. For 'reviewing' we leave resolvedAt null so the queue can
-  // distinguish "claimed but not done" from "finished".
-  const isTerminal = next === 'resolved' || next === 'dismissed';
-  await reportRef.update({
-    status: next,
-    actionTaken: actionTaken ?? null,
-    resolvedByAdminUid: isTerminal ? adminUid : data.resolvedByAdminUid ?? null,
-    resolvedAt: isTerminal ? Timestamp.now() : data.resolvedAt ?? null,
-  });
-
-  // Audit. targetUid is the reported account owner so the per-user
-  // activity dialog surfaces moderation history alongside other admin
-  // actions. Falls back to the reporter if owner is unknown.
-  const targetUid =
-    typeof data.targetOwnerUid === 'string' && data.targetOwnerUid.length > 0
-      ? data.targetOwnerUid
-      : typeof data.reporterUid === 'string'
-        ? data.reporterUid
-        : '';
-  await recordAdminAction({
-    adminUid,
-    targetUid,
-    action: auditAction,
-    payload: {
-      reportId,
-      reason: typeof data.reason === 'string' ? data.reason : null,
-      targetType: typeof data.targetType === 'string' ? data.targetType : null,
-      actionTaken,
-    },
-  });
 
   revalidatePath('/moderation');
   revalidatePath(`/moderation/${reportId}`);
@@ -111,54 +74,23 @@ async function transitionReport({
 
 export async function markReportReviewing(
   reportId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionResult> {
-  const session = await requireAdminSession();
-  const actionTaken =
-    clampString(formData.get('actionTaken'), MAX_ACTION_TAKEN_LENGTH) || null;
-  return transitionReport({
-    reportId,
-    next: 'reviewing',
-    from: ['open'],
-    actionTaken,
-    adminUid: session.uid,
-    auditAction: 'report_take_over',
-  });
+  return transitionReport(reportId, 'reviewing', formData);
 }
 
 export async function resolveReport(
   reportId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionResult> {
-  const session = await requireAdminSession();
-  const actionTaken =
-    clampString(formData.get('actionTaken'), MAX_ACTION_TAKEN_LENGTH) || null;
-  return transitionReport({
-    reportId,
-    next: 'resolved',
-    from: ['open', 'reviewing'],
-    actionTaken,
-    adminUid: session.uid,
-    auditAction: 'report_resolve',
-  });
+  return transitionReport(reportId, 'resolved', formData);
 }
 
 export async function dismissReport(
   reportId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionResult> {
-  const session = await requireAdminSession();
-  // Reason text is optional — dismissals are common (false positives) and
-  // forcing a reason would slow the queue. Optional notes can ride on the
-  // actionTaken field for context.
-  const actionTaken =
-    clampString(formData.get('actionTaken'), MAX_ACTION_TAKEN_LENGTH) || null;
-  return transitionReport({
-    reportId,
-    next: 'dismissed',
-    from: ['open', 'reviewing'],
-    actionTaken,
-    adminUid: session.uid,
-    auditAction: 'report_dismiss',
-  });
+  // No reason required — dismissals are mostly false positives, and demanding
+  // a justification for each one slows the queue for no gain.
+  return transitionReport(reportId, 'dismissed', formData);
 }
