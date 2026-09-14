@@ -20,6 +20,8 @@ import { managed } from './managed';
 import { moderation } from './moderation';
 import { operate } from './operate';
 import { serviceableAreas } from './serviceable-areas';
+import { partnerImports } from './partner-imports';
+import { calendars } from './calendars';
 
 export function buildDictionary(locale: Locale) {
   return {
@@ -37,6 +39,8 @@ export function buildDictionary(locale: Locale) {
     moderation: moderation[locale],
     operate: operate[locale],
     serviceableAreas: serviceableAreas[locale],
+    partnerImports: partnerImports[locale],
+    calendars: calendars[locale],
   };
 }
 
