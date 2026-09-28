@@ -22,6 +22,7 @@ import { operate } from './operate';
 import { serviceableAreas } from './serviceable-areas';
 import { partnerImports } from './partner-imports';
 import { calendars } from './calendars';
+import { listings } from './listings';
 
 export function buildDictionary(locale: Locale) {
   return {
@@ -41,6 +42,7 @@ export function buildDictionary(locale: Locale) {
     serviceableAreas: serviceableAreas[locale],
     partnerImports: partnerImports[locale],
     calendars: calendars[locale],
+    listings: listings[locale],
   };
 }
 
