@@ -79,6 +79,16 @@ function ModerationIcon() {
   );
 }
 
+function ListingsIcon() {
+  return (
+    <Icon>
+      <path d="M3 21h18" />
+      <path d="M5 21V8l7-5 7 5v13" />
+      <rect x="9.5" y="12" width="5" height="9" rx="1" />
+    </Icon>
+  );
+}
+
 function UsersIcon() {
   return (
     <Icon>
@@ -177,6 +187,11 @@ export default async function Sidebar({ user }: SidebarProps) {
           href="/finances"
           label={t('nav.finances')}
           icon={<FinancesIcon />}
+        />
+        <SidebarLink
+          href="/listings"
+          label={t('nav.listings')}
+          icon={<ListingsIcon />}
         />
         <SidebarLink
           href="/users"
