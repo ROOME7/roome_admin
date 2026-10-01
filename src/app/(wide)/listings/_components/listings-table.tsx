@@ -148,20 +148,18 @@ export default function ListingsTable({ rows }: { rows: PropertyRow[] }) {
         </div>
       )}
 
-      {/* ⚠️ A GRID, NOT CARDS. This screen is read the way a spreadsheet is —
-          scanned down one column looking for the odd one out — so every cell
-          holds a single value, rows are one line tall, and the columns are
-          ruled. The old layout stacked city under street and email under
-          owner, which reads well for five rows and defeats the purpose at a
-          hundred. `border-separate` with zero spacing keeps the ruled borders
-          from collapsing away under the sticky header. */}
-      <div className="overflow-x-auto border-y border-border bg-surface">
-        <table className="w-full border-collapse text-[13px]">
+      {/* Rows run edge to edge with nothing but a rule between them.
+          ⚠️ `border-separate` AND STICKY ON THE `th`, NOT THE `tr`. A sticky
+          <tr> inside a border-collapse table does not stick in Chrome — it
+          detaches and floats over the body, which hid the first data row
+          completely and made an iCal filter that was returning one row look
+          like it was returning none. Sticky belongs on the cells, and
+          border-collapse has to go for their borders to survive it. */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-separate border-spacing-0 text-[13px]">
           <thead>
-            {/* `top-14` is the height of the panel's own sticky header; the
-                two stack rather than overlap. */}
-            <tr className="sticky top-14 z-10 bg-secondary text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th className="w-9 border-b border-r border-border px-2 py-1.5">
+            <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <Th className="w-10 pl-6">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -170,27 +168,24 @@ export default function ListingsTable({ rows }: { rows: PropertyRow[] }) {
                   aria-label={t('listings.selectAll')}
                   className="h-3.5 w-3.5 rounded border-border align-middle"
                 />
-              </th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colProperty')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colCity')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colOwner')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colEmail')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 text-right font-semibold">{t('listings.colRooms')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 text-right font-semibold">{t('listings.colListed')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colIcal')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 text-right font-semibold">{t('listings.colContracts')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colStatus')}</th>
-              <th className="border-b border-r border-border px-2 py-1.5 font-semibold">{t('listings.colCreated')}</th>
-              <th className="border-b border-border px-2 py-1.5" />
+              </Th>
+              <Th>{t('listings.colProperty')}</Th>
+              <Th>{t('listings.colCity')}</Th>
+              <Th>{t('listings.colOwner')}</Th>
+              <Th>{t('listings.colEmail')}</Th>
+              <Th className="text-right">{t('listings.colRooms')}</Th>
+              <Th className="text-right">{t('listings.colListed')}</Th>
+              <Th>{t('listings.colIcal')}</Th>
+              <Th className="text-right">{t('listings.colContracts')}</Th>
+              <Th>{t('listings.colStatus')}</Th>
+              <Th>{t('listings.colCreated')}</Th>
+              <Th className="pr-6" />
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr
-                key={row.id}
-                className={`${i % 2 ? 'bg-secondary/30' : ''} hover:bg-primary/5`}
-              >
-                <td className="border-b border-r border-border px-2 py-1">
+            {rows.map((row) => (
+              <tr key={row.id} className="hover:bg-secondary/60">
+                <Td className="pl-6">
                   {row.status !== 'deleted' && (
                     <input
                       type="checkbox"
@@ -200,8 +195,8 @@ export default function ListingsTable({ rows }: { rows: PropertyRow[] }) {
                       className="h-3.5 w-3.5 rounded border-border align-middle"
                     />
                   )}
-                </td>
-                <td className="max-w-[22rem] truncate border-b border-r border-border px-2 py-1">
+                </Td>
+                <Td className="max-w-[24rem] truncate">
                   <Link
                     href={`/listings/${row.id}`}
                     title={row.title}
@@ -214,66 +209,59 @@ export default function ListingsTable({ rows }: { rows: PropertyRow[] }) {
                       {t('listings.fromImport')}
                     </span>
                   )}
-                </td>
-                <td className="max-w-[10rem] truncate border-b border-r border-border px-2 py-1 text-muted-foreground">
+                </Td>
+                <Td className="max-w-[10rem] truncate text-muted-foreground">
                   {row.city}
                   {row.province ? ` (${row.province})` : ''}
-                </td>
-                <td className="max-w-[12rem] truncate border-b border-r border-border px-2 py-1 text-foreground">
-                  {row.owner.name ?? `@${row.owner.username}`}
-                </td>
-                <td className="max-w-[16rem] truncate border-b border-r border-border px-2 py-1 text-muted-foreground">
-                  {row.owner.email}
-                </td>
-                {/* Tabular figures so the digits line up down the column —
-                    the whole reason to put a number in its own cell. */}
-                <td className="border-b border-r border-border px-2 py-1 text-right tabular-nums text-muted-foreground">
-                  {row.roomCount}
-                </td>
-                <td className="border-b border-r border-border px-2 py-1 text-right tabular-nums text-muted-foreground">
+                </Td>
+                <Td className="max-w-[12rem] truncate">{row.owner.name ?? `@${row.owner.username}`}</Td>
+                <Td className="max-w-[16rem] truncate text-muted-foreground">{row.owner.email}</Td>
+                {/* Tabular figures so the digits line up down the column. */}
+                <Td className="text-right tabular-nums text-muted-foreground">{row.roomCount}</Td>
+                <Td className="text-right tabular-nums text-muted-foreground">
                   {row.activeListings || ''}
-                </td>
-                <td className="border-b border-r border-border px-2 py-1">
+                </Td>
+                <Td>
                   <IcalCell row={row} t={t} />
-                </td>
-                {/* Still the one fact worth colouring: a non-zero here means
+                </Td>
+                {/* Still the one number worth colouring: non-zero means
                     deleting the row reaches a real person who applied. */}
-                <td
-                  className={`border-b border-r border-border px-2 py-1 text-right tabular-nums ${
+                <Td
+                  className={`text-right tabular-nums ${
                     row.contractCount > 0 ? 'font-semibold text-amber-700' : 'text-muted-foreground'
                   }`}
                 >
                   {row.contractCount || ''}
-                </td>
-                <td className="border-b border-r border-border px-2 py-1">
+                </Td>
+                <Td>
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[row.status]}`}
                   >
                     {t(STATUS_KEYS[row.status])}
                   </span>
-                </td>
-                <td className="whitespace-nowrap border-b border-r border-border px-2 py-1 tabular-nums text-muted-foreground">
+                </Td>
+                <Td className="whitespace-nowrap tabular-nums text-muted-foreground">
                   {dateFormatter.format(row.createdAt)}
-                </td>
-                <td className="whitespace-nowrap border-b border-border px-2 py-1 text-right">
+                </Td>
+                <Td className="whitespace-nowrap pr-6 text-right">
                   {row.status === 'deleted' ? (
                     <button
                       type="button"
                       onClick={() => runRestore(row.id)}
                       disabled={pending}
-                      className="rounded border border-border px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+                      className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
                     >
                       {pending ? t('listings.restoring') : t('listings.restore')}
                     </button>
                   ) : (
                     <Link
                       href={`/listings/${row.id}`}
-                      className="rounded border border-border px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+                      className="text-primary underline-offset-2 hover:underline"
                     >
                       {t('listings.view')}
                     </Link>
                   )}
-                </td>
+                </Td>
               </tr>
             ))}
           </tbody>
@@ -356,4 +344,26 @@ function IcalCell({ row, t }: { row: PropertyRow; t: TFunc }) {
       {row.icalRooms > 1 && <span className="ml-1 font-normal">×{row.icalRooms}</span>}
     </span>
   );
+}
+
+/**
+ * A header cell.
+ *
+ * Sticky lives here rather than on the row — see the note on the table. The
+ * background is not optional: a transparent sticky cell lets the rows scroll
+ * through it.
+ */
+function Th({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
+  return (
+    <th
+      className={`sticky top-14 z-10 border-b border-border bg-secondary px-3 py-2 font-semibold ${className}`}
+    >
+      {children}
+    </th>
+  );
+}
+
+/** A body cell. One rule underneath, nothing down the sides. */
+function Td({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
+  return <td className={`border-b border-border px-3 py-2 ${className}`}>{children}</td>;
 }
