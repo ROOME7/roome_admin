@@ -11,10 +11,9 @@
 import Link from 'next/link';
 import { useMemo, useState, useTransition } from 'react';
 import { useT } from '@/i18n/client';
-// Aliased, not relative: this screen lives in the `(wide)` route group and
-// the dialog primitives live under `(protected)/managed`, so a relative path
-// would have to climb out of one group and into another. Twelve other files
-// import these from inside `managed`, so the primitives stay where they are.
+// Aliased, not relative: this screen lives in the `(wide)` route group and the
+// dialog primitives live under `(protected)/managed`, so a relative path would
+// have to climb out of one group and into another.
 import { Overlay } from '@/app/(protected)/managed/_components/dialog-primitives';
 import { deleteProperties, restoreProperty } from '../actions';
 import type { TFunc } from '@/i18n/t';
@@ -148,120 +147,114 @@ export default function ListingsTable({ rows }: { rows: PropertyRow[] }) {
         </div>
       )}
 
-      {/* Rows run edge to edge with nothing but a rule between them.
-          ⚠️ `border-separate` AND STICKY ON THE `th`, NOT THE `tr`. A sticky
-          <tr> inside a border-collapse table does not stick in Chrome — it
-          detaches and floats over the body, which hid the first data row
-          completely and made an iCal filter that was returning one row look
-          like it was returning none. Sticky belongs on the cells, and
-          border-collapse has to go for their borders to survive it. */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-separate border-spacing-0 text-[13px]">
+      {/* Edge to edge: no rounded card around it, so the rows span the whole
+          width of the screen. The cells keep their own padding. */}
+      <div className="overflow-x-auto border-y border-border bg-surface">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <Th className="w-10 pl-6">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="w-10 px-4 py-3">
                 <input
                   type="checkbox"
                   checked={allSelected}
                   onChange={toggleAll}
                   disabled={selectable.length === 0}
                   aria-label={t('listings.selectAll')}
-                  className="h-3.5 w-3.5 rounded border-border align-middle"
+                  className="h-4 w-4 rounded border-border"
                 />
-              </Th>
-              <Th>{t('listings.colProperty')}</Th>
-              <Th>{t('listings.colCity')}</Th>
-              <Th>{t('listings.colOwner')}</Th>
-              <Th>{t('listings.colEmail')}</Th>
-              <Th className="text-right">{t('listings.colRooms')}</Th>
-              <Th className="text-right">{t('listings.colListed')}</Th>
-              <Th>{t('listings.colIcal')}</Th>
-              <Th className="text-right">{t('listings.colContracts')}</Th>
-              <Th>{t('listings.colStatus')}</Th>
-              <Th>{t('listings.colCreated')}</Th>
-              <Th className="pr-6" />
+              </th>
+              <th className="px-4 py-3 font-medium">{t('listings.colProperty')}</th>
+              <th className="px-4 py-3 font-medium">{t('listings.colOwner')}</th>
+              <th className="px-4 py-3 font-medium">{t('listings.colRooms')}</th>
+              <th className="px-4 py-3 font-medium">{t('listings.colIcal')}</th>
+              <th className="px-4 py-3 font-medium">{t('listings.colStatus')}</th>
+              <th className="px-4 py-3 font-medium">{t('listings.colCreated')}</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="hover:bg-secondary/60">
-                <Td className="pl-6">
+              <tr key={row.id} className="border-b border-border last:border-0">
+                <td className="px-4 py-3 align-top">
                   {row.status !== 'deleted' && (
                     <input
                       type="checkbox"
                       checked={selected.has(row.id)}
                       onChange={() => toggle(row.id)}
                       aria-label={row.title}
-                      className="h-3.5 w-3.5 rounded border-border align-middle"
+                      className="h-4 w-4 rounded border-border"
                     />
                   )}
-                </Td>
-                <Td className="max-w-[24rem] truncate">
-                  <Link
-                    href={`/listings/${row.id}`}
-                    title={row.title}
-                    className="font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
-                  >
-                    {row.title}
-                  </Link>
-                  {row.source && (
-                    <span className="ml-1.5 text-[11px] text-muted-foreground">
-                      {t('listings.fromImport')}
+                </td>
+                <td className="px-4 py-3 align-top">
+                  <p className="font-medium">
+                    <Link
+                      href={`/listings/${row.id}`}
+                      className="text-foreground underline-offset-2 hover:text-primary hover:underline"
+                    >
+                      {row.title}
+                    </Link>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {row.city}
+                    {row.province ? ` (${row.province})` : ''}
+                    {row.source && ` · ${t('listings.fromImport')}`}
+                  </p>
+                  {/* Said in words, not as a badge. It is the one fact that
+                      distinguishes a throwaway test row from somebody's real
+                      listing, and a coloured dot is too easy to scroll past. */}
+                  {row.contractCount > 0 && (
+                    <p className="mt-1 text-xs font-medium text-amber-700">
+                      {t('listings.hasContracts', { count: row.contractCount })}
+                    </p>
+                  )}
+                </td>
+                <td className="px-4 py-3 align-top">
+                  <p className="text-foreground">{row.owner.name ?? `@${row.owner.username}`}</p>
+                  <p className="text-xs text-muted-foreground">{row.owner.email}</p>
+                </td>
+                <td className="px-4 py-3 align-top text-muted-foreground">
+                  {row.roomCount === 1
+                    ? t('listings.roomsCountOne')
+                    : t('listings.roomsCount', { count: row.roomCount })}
+                  {row.activeListings > 0 && (
+                    <span className="block text-xs">
+                      {t('listings.activeListings', { count: row.activeListings })}
                     </span>
                   )}
-                </Td>
-                <Td className="max-w-[10rem] truncate text-muted-foreground">
-                  {row.city}
-                  {row.province ? ` (${row.province})` : ''}
-                </Td>
-                <Td className="max-w-[12rem] truncate">{row.owner.name ?? `@${row.owner.username}`}</Td>
-                <Td className="max-w-[16rem] truncate text-muted-foreground">{row.owner.email}</Td>
-                {/* Tabular figures so the digits line up down the column. */}
-                <Td className="text-right tabular-nums text-muted-foreground">{row.roomCount}</Td>
-                <Td className="text-right tabular-nums text-muted-foreground">
-                  {row.activeListings || ''}
-                </Td>
-                <Td>
+                </td>
+                <td className="px-4 py-3 align-top">
                   <IcalCell row={row} t={t} />
-                </Td>
-                {/* Still the one number worth colouring: non-zero means
-                    deleting the row reaches a real person who applied. */}
-                <Td
-                  className={`text-right tabular-nums ${
-                    row.contractCount > 0 ? 'font-semibold text-amber-700' : 'text-muted-foreground'
-                  }`}
-                >
-                  {row.contractCount || ''}
-                </Td>
-                <Td>
+                </td>
+                <td className="px-4 py-3 align-top">
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[row.status]}`}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[row.status]}`}
                   >
                     {t(STATUS_KEYS[row.status])}
                   </span>
-                </Td>
-                <Td className="whitespace-nowrap tabular-nums text-muted-foreground">
+                </td>
+                <td className="px-4 py-3 align-top text-xs text-muted-foreground">
                   {dateFormatter.format(row.createdAt)}
-                </Td>
-                <Td className="whitespace-nowrap pr-6 text-right">
+                </td>
+                <td className="px-4 py-3 align-top text-right">
                   {row.status === 'deleted' ? (
                     <button
                       type="button"
                       onClick={() => runRestore(row.id)}
                       disabled={pending}
-                      className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
                     >
                       {pending ? t('listings.restoring') : t('listings.restore')}
                     </button>
                   ) : (
                     <Link
                       href={`/listings/${row.id}`}
-                      className="text-primary underline-offset-2 hover:underline"
+                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
                     >
                       {t('listings.view')}
                     </Link>
                   )}
-                </Td>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -312,22 +305,21 @@ export default function ListingsTable({ rows }: { rows: PropertyRow[] }) {
 }
 
 /**
- * The iCal cell.
+ * The iCal cell — three states, not two.
  *
- * ⚠️ THREE STATES, NOT TWO. "Has a feed" and "has a working feed" are
- * different facts and the gap between them is where the support tickets live:
- * the sync is a nightly cron at 05:00 Europe/Rome, so a landlord who saves a
- * URL in the evening has an attached feed that has produced nothing until
- * morning. Showing a bare tick there claims a sync that has not happened;
- * showing a cross calls a working feed broken. So `pending` is its own state,
- * and it is the one that stops somebody "fixing" a feed that was fine.
+ * "Has a feed" and "has a working feed" are different facts, and the gap
+ * between them is where the support tickets live: the sync is a nightly cron
+ * at 05:00 Europe/Rome, so a landlord who saves a URL in the evening has an
+ * attached feed that has produced nothing until morning. A bare tick there
+ * claims a sync that has not happened and a cross calls a working feed broken,
+ * so `pending` is named explicitly.
  */
 function IcalCell({ row, t }: { row: PropertyRow; t: TFunc }) {
   if (!row.hasIcal) return <span className="text-muted-foreground">—</span>;
 
   if (row.icalNeverSynced) {
     return (
-      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
         {t('listings.icalPending')}
       </span>
     );
@@ -336,34 +328,12 @@ function IcalCell({ row, t }: { row: PropertyRow; t: TFunc }) {
   return (
     <span
       // The date is the evidence behind the tick, and a title is the right
-      // weight for it: visible on demand, not taking a column of its own.
+      // weight for it: there on demand, not taking a column of its own.
       title={row.icalLastSyncedAt ? dateFormatter.format(new Date(row.icalLastSyncedAt)) : undefined}
-      className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary"
+      className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary"
     >
       {t('listings.icalYes')}
       {row.icalRooms > 1 && <span className="ml-1 font-normal">×{row.icalRooms}</span>}
     </span>
   );
-}
-
-/**
- * A header cell.
- *
- * Sticky lives here rather than on the row — see the note on the table. The
- * background is not optional: a transparent sticky cell lets the rows scroll
- * through it.
- */
-function Th({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
-  return (
-    <th
-      className={`sticky top-14 z-10 border-b border-border bg-secondary px-3 py-2 font-semibold ${className}`}
-    >
-      {children}
-    </th>
-  );
-}
-
-/** A body cell. One rule underneath, nothing down the sides. */
-function Td({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
-  return <td className={`border-b border-border px-3 py-2 ${className}`}>{children}</td>;
 }
