@@ -50,7 +50,13 @@ const it = {
   icalNeverRun: 'Mai eseguita',
   icalStatus: 'Esito',
   icalFailures: 'Errori consecutivi',
-  icalUrl: 'URL del feed (è una credenziale)',
+  icalUrl: 'URL del feed (oscurato)',
+  icalUrlRedacted:
+    'Mostrato parzialmente: l\'URL è una credenziale e chi lo possiede può leggere le prenotazioni del proprietario. Originale: {count} caratteri.',
+  icalLegendBusy: 'Occupato',
+  icalLegendToday: 'Oggi',
+  icalLegendPast: '{count} periodi precedenti non mostrati',
+  icalRaw: 'Mostra i dati grezzi del feed',
   icalPendingExplain:
     'Il calendario è collegato ma non è ancora stato letto: la sincronizzazione gira ogni notte alle 05:00 (Europe/Rome). Non è un errore.',
   icalLastError: 'Ultimo errore',
@@ -151,7 +157,13 @@ const en: Record<keyof typeof it, string> = {
   icalNeverRun: 'Never run',
   icalStatus: 'Result',
   icalFailures: 'Consecutive failures',
-  icalUrl: 'Feed URL (this is a credential)',
+  icalUrl: 'Feed URL (redacted)',
+  icalUrlRedacted:
+    'Shown in part: the URL is a credential, and anyone holding it can read the landlord\'s bookings. Original is {count} characters.',
+  icalLegendBusy: 'Busy',
+  icalLegendToday: 'Today',
+  icalLegendPast: '{count} earlier periods not shown',
+  icalRaw: 'Show the raw feed data',
   icalPendingExplain:
     'The calendar is attached but has not been read yet: the sync runs nightly at 05:00 (Europe/Rome). This is not a failure.',
   icalLastError: 'Last error',

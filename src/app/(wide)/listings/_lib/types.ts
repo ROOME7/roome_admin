@@ -105,8 +105,14 @@ export function listingsHref(params: {
 /** A room's calendar feed, and what the nightly sync last made of it. */
 export interface RoomCalendar {
   id: string;
-  /** ⚠️ A credential. Anyone holding it can read the landlord's bookings. */
-  url: string;
+  /**
+   * ⚠️ REDACTED ON THE SERVER — the full URL never reaches the browser.
+   *
+   * It is a credential: anyone holding it can read the landlord's bookings,
+   * and it cannot be revoked without reissuing the link at the far end. What
+   * is left identifies the feed without granting access.
+   */
+  url: { host: string; preview: string; length: number };
   source: string | null;
   active: boolean;
   lastSyncedAt: string | null;

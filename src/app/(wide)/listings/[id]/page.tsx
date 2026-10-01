@@ -13,8 +13,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { apiAuthed } from '@/lib/session';
 import { requireAdminSession } from '@/lib/auth';
-import { getT } from '@/i18n/server';
+import { getLocale, getT } from '@/i18n/server';
 import type { TFunc } from '@/i18n/t';
+import FeedCalendar from '../_components/feed-calendar';
 import type { PropertyDetail, RoomDetail } from '../_lib/types';
 
 const dateTime = new Intl.DateTimeFormat('en-GB', {
@@ -27,7 +28,7 @@ const money = (cents: number, currency: string) =>
 
 export default async function ListingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdminSession();
-  const t = await getT();
+  const [t, locale] = await Promise.all([getT(), getLocale()]);
   const { id } = await params;
 
   const p = await apiAuthed<PropertyDetail>(`/admin/properties/${id}`);
@@ -63,7 +64,9 @@ export default async function ListingDetailPage({ params }: { params: Promise<{ 
         {p.rooms.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('listings.detailNoRooms')}</p>
         ) : (
-          p.rooms.map((room, i) => <RoomCard key={room.id} room={room} index={i + 1} t={t} />)
+          p.rooms.map((room, i) => (
+            <RoomCard key={room.id} room={room} index={i + 1} t={t} locale={locale} />
+          ))
         )}
       </section>
     </div>
@@ -83,7 +86,17 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RoomCard({ room, index, t }: { room: RoomDetail; index: number; t: TFunc }) {
+function RoomCard({
+  room,
+  index,
+  t,
+  locale,
+}: {
+  room: RoomDetail;
+  index: number;
+  t: TFunc;
+  locale: string;
+}) {
   return (
     <div className="rounded-lg border border-border bg-surface">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-border px-4 py-3">
@@ -98,7 +111,7 @@ function RoomCard({ room, index, t }: { room: RoomDetail; index: number; t: TFun
           </span>
         )}
       </div>
-      <CalendarPanel room={room} t={t} />
+      <CalendarPanel room={room} t={t} locale={locale} />
     </div>
   );
 }
@@ -112,7 +125,7 @@ function RoomCard({ room, index, t }: { room: RoomDetail; index: number; t: TFun
  * collapsed it into "not working" would send people to support over a feed
  * that is about to work by itself.
  */
-function CalendarPanel({ room, t }: { room: RoomDetail; t: TFunc }) {
+function CalendarPanel({ room, t, locale }: { room: RoomDetail; t: TFunc; locale: string }) {
   const feed = room.calendar;
 
   if (!feed) {
@@ -139,19 +152,21 @@ function CalendarPanel({ room, t }: { room: RoomDetail; t: TFunc }) {
         <Fact label={t('listings.icalFailures')} value={String(feed.failureCount)} />
       </dl>
 
-      {/* ⚠️ THE URL IS A CREDENTIAL — anyone holding it can read the
-          landlord's bookings, which is why the sync service keeps it out of
-          its own logs. It is shown here because this page is admin-only and
-          diagnosing a feed without seeing the URL is guesswork. `break-all`
-          rather than truncation: a half-shown URL cannot be checked against
-          the one the landlord pasted. */}
+      {/* ⚠️ REDACTED, AND REDACTED SERVER-SIDE. The URL is a credential and
+          the full value never leaves the API — hiding it in the markup would
+          still put it in the network tab and in any screenshot of one. What
+          is shown answers the question this screen asks ("is it pointing at
+          the right service?") and nothing more. */}
       <div>
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
           {t('listings.icalUrl')}
         </p>
         <code className="block break-all rounded bg-secondary px-2 py-1 text-xs text-foreground">
-          {feed.url}
+          {feed.url.preview}
         </code>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {t('listings.icalUrlRedacted', { count: feed.url.length })}
+        </p>
       </div>
 
       {feed.neverSynced && (
@@ -175,6 +190,20 @@ function CalendarPanel({ room, t }: { room: RoomDetail; t: TFunc }) {
         </p>
       )}
 
+      {/* The answer to "is this link working?", which is what the client
+          actually asked for: shaded days mean the feed produced something,
+          an empty grid means it did not. The ISO table below is kept for
+          reading the exact values, but it is no longer the primary view. */}
+      <FeedCalendar
+        blocks={room.icalBlocks}
+        locale={locale}
+        labels={{
+          busy: t('listings.icalLegendBusy'),
+          today: t('listings.icalLegendToday'),
+          past: t('listings.icalLegendPast'),
+        }}
+      />
+
       <div>
         <p className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
           {t('listings.icalBlocks', { count: room.icalBlockCount })}
@@ -184,7 +213,11 @@ function CalendarPanel({ room, t }: { room: RoomDetail; t: TFunc }) {
             {feed.neverSynced ? t('listings.icalBlocksPending') : t('listings.icalBlocksNone')}
           </p>
         ) : (
-          <table className="w-full border-collapse text-[13px]">
+          <details className="group">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+              {t('listings.icalRaw')}
+            </summary>
+            <table className="mt-2 w-full border-collapse text-[13px]">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="border-b border-border py-1 pr-4 font-semibold">{t('listings.icalFrom')}</th>
@@ -211,8 +244,9 @@ function CalendarPanel({ room, t }: { room: RoomDetail; t: TFunc }) {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </details>
         )}
       </div>
     </div>
