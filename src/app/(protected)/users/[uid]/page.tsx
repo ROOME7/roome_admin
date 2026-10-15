@@ -27,6 +27,7 @@ import {
   type ApiUserDetail,
 } from '../_lib/user-model';
 import { BlocksPanel } from './_components/blocks-panel';
+import WaiverPanel from './_components/waiver-panel';
 
 const dateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -255,6 +256,15 @@ export default async function UserDetailPage({ params }: { params: Params }) {
         />
       </Section>
 
+      {/* ⚠️ ITS OWN SECTION, ABOVE STRIPE, and deliberately not inside it.
+          A waiver touches nothing in Stripe — it is the decision not to
+          charge somebody — and the landlord who has one usually has no
+          Stripe objects at all, so nesting it under a block that renders
+          only when Stripe data exists would hide it exactly when it applies. */}
+      <Section title={t('users.sectionWaiver')} note={t('users.waiverNote')}>
+        <WaiverPanel userId={u.id} waiver={u.stripe.waiver} isLandlord={kind === 'landlord'} />
+      </Section>
+
       <Section title="Stripe" note={t('users.stripeNote')}>
         {u.stripe.customerId || u.stripe.connect || u.stripe.subscription ? (
           <>
@@ -300,10 +310,6 @@ export default async function UserDetailPage({ params }: { params: Params }) {
                 <Field
                   label={t('users.fieldSubscriptionRenews')}
                   value={fmtAt(u.stripe.subscription.currentPeriodEnd)}
-                />
-                <Field
-                  label={t('users.fieldSubscriptionWaiver')}
-                  value={fmt(u.stripe.subscription.waiverActive, t)}
                 />
               </>
             )}

@@ -145,8 +145,26 @@ export interface ApiUserDetail extends ApiUser {
       interval: string;
       currentPeriodEnd: string | null;
       cancelAtPeriodEnd: boolean;
-      waiverActive: boolean;
     } | null;
+    /**
+     * The publishing waiver — an admin's decision that this landlord
+     * publishes without paying.
+     *
+     * ⚠️ IT SITS BESIDE `subscription`, NOT INSIDE IT. A comped landlord
+     * usually has no subscription at all: that is the whole point of comping
+     * them. Reading the waiver off the subscription object meant the one
+     * account that had a waiver was the one account that could not show it.
+     *
+     * `active` already accounts for the expiry, so there is nothing to
+     * compare against the clock here.
+     */
+    waiver: {
+      active: boolean;
+      reason: string | null;
+      grantedAt: string | null;
+      grantedBy: string | null;
+      expiresAt: string | null;
+    };
   };
 
   counts: {
