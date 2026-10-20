@@ -1,24 +1,21 @@
 "use client";
 
-// Per-row controls: activate/deactivate (tenants only see active areas) and
-// remove. Remove asks for an inline confirm first.
+// Per-row controls: edit (relink to a place / rename), activate/deactivate
+// (tenants only see active areas) and remove. Remove asks for an inline
+// confirm first.
 
 import { useState, useTransition } from "react";
 import { setAreaActive, deleteServiceableArea } from "../actions";
 import { useT } from "@/i18n/client";
+import type { ServiceableArea } from "@/lib/serviceable-areas";
+import { EditAreaDialog } from "./edit-area-dialog";
 
-export function AreaRowActions({
-  id,
-  name,
-  active,
-}: {
-  id: string;
-  name: string;
-  active: boolean;
-}) {
+export function AreaRowActions({ area }: { area: ServiceableArea }) {
+  const { id, displayName: name, active } = area;
   const t = useT();
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function toggle() {
@@ -43,6 +40,17 @@ export function AreaRowActions({
   return (
     <div className="flex shrink-0 flex-col items-end gap-1">
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditing(true);
+          }}
+          disabled={pending}
+          className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {t("serviceableAreas.edit")}
+        </button>
         <button
           type="button"
           onClick={toggle}
@@ -92,6 +100,7 @@ export function AreaRowActions({
           {error}
         </p>
       )}
+      {editing && <EditAreaDialog area={area} onClose={() => setEditing(false)} />}
     </div>
   );
 }

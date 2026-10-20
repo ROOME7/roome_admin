@@ -1,7 +1,7 @@
 "use client";
 
-// Modal to add a serviceable area: search OSM for an Italian city, then add a
-// result. Search runs on submit (Nominatim ~1 req/sec policy). Stays open after
+// Modal to add a serviceable area: search Google Maps for an Italian city, then add a
+// result. Search runs on submit. Stays open after
 // an add so several areas can be added in a row; revalidatePath refreshes the
 // map + list underneath.
 
@@ -143,7 +143,7 @@ export function AddAreaDialog({ onClose }: { onClose: () => void }) {
                 c.displayName;
               return (
                 <li
-                  key={`${c.slug}-${c.osmId ?? ""}`}
+                  key={`${c.slug}-${c.googlePlaceId ?? c.osmId ?? ""}`}
                   className="flex items-center gap-3 px-3 py-2.5 text-sm"
                 >
                   <div className="min-w-0 flex-1">

@@ -1,71 +1,90 @@
 "use client";
 
-// Leaflet map of serviceable areas — pin + bounding-box rectangle per area.
+// Google map of serviceable areas — pin + extent rectangle per area.
 // Client-only (imported via next/dynamic ssr:false from areas-board.tsx).
-// Free OpenStreetMap tiles, matching the dashboard map + the OSM lookup.
 
-import "leaflet/dist/leaflet.css";
-import { Fragment, useEffect } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Rectangle,
-  useMap,
-} from "react-leaflet";
-import L from "leaflet";
+import { useEffect, useRef } from "react";
+import { AdvancedMarker, Map as GoogleMap, useMap } from "@vis.gl/react-google-maps";
+import { MapsProvider } from "@/components/maps-provider";
+import { GOOGLE_MAP_ID, INACTIVE_GREY, PinGlyph, ROOME_BLUE, ROOME_BLUE_DARK } from "@/lib/google-maps";
 import type { ServiceableArea } from "@/lib/serviceable-areas";
 
-const ITALY_CENTER: [number, number] = [42.5, 12.5];
+const ITALY_CENTER = { lat: 42.5, lng: 12.5 };
 
-function pinIcon(active: boolean, selected: boolean): L.DivIcon {
-  const color = !active ? "#94a3b8" : selected ? "#16365c" : "#2563a8";
-  const size = selected ? 40 : 28;
-  const html = `
-    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}"
-         stroke="white" stroke-width="1.5" xmlns="http://www.w3.org/2000/svg"
-         style="filter: drop-shadow(0 1px 2px rgba(0,0,0,.35));">
-      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
-      <circle cx="12" cy="9" r="2.6" fill="white"/>
-    </svg>`;
-  return L.divIcon({
-    html,
-    className: "roome-pin",
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size],
-  });
-}
-
-// Fit to all areas; fly to the selected one when it changes.
-function ViewController({
-  areas,
-  selectedId,
-}: {
-  areas: ServiceableArea[];
-  selectedId: string | null;
-}) {
+// Fit to all areas; pan to the selected one when it changes.
+function ViewController({ areas, selectedId }: { areas: ServiceableArea[]; selectedId: string | null }) {
   const map = useMap();
   useEffect(() => {
+    if (!map) return;
     if (selectedId) {
       const a = areas.find((x) => x.id === selectedId);
       if (a && a.lat != null && a.lng != null) {
-        map.flyTo([a.lat, a.lng], Math.max(map.getZoom(), 11), {
-          duration: 0.6,
-        });
+        map.panTo({ lat: a.lat, lng: a.lng });
+        const z = map.getZoom() ?? 5;
+        if (z < 11) map.setZoom(11);
         return;
       }
     }
-    const pts = areas
-      .filter((a) => a.lat != null && a.lng != null)
-      .map((a) => [a.lat as number, a.lng as number] as [number, number]);
+    const pts = areas.filter((a) => a.lat != null && a.lng != null);
     if (pts.length === 0) {
-      map.setView(ITALY_CENTER, 5);
+      map.setCenter(ITALY_CENTER);
+      map.setZoom(5);
     } else if (pts.length === 1) {
-      map.setView(pts[0], 11);
+      map.setCenter({ lat: pts[0].lat as number, lng: pts[0].lng as number });
+      map.setZoom(11);
     } else {
-      map.fitBounds(L.latLngBounds(pts), { padding: [44, 44], maxZoom: 12 });
+      const bounds = new google.maps.LatLngBounds();
+      for (const a of pts) bounds.extend({ lat: a.lat as number, lng: a.lng as number });
+      map.fitBounds(bounds, 44);
+      const once = map.addListener("idle", () => {
+        const z = map.getZoom();
+        if (z !== undefined && z > 12) map.setZoom(12);
+        once.remove();
+      });
     }
   }, [map, areas, selectedId]);
+  return null;
+}
+
+/** The area's extent as a google.maps.Rectangle, kept in sync with its props. */
+function ExtentRectangle({
+  box,
+  color,
+  selected,
+  onClick,
+}: {
+  box: NonNullable<ServiceableArea["boundingBox"]>;
+  color: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const map = useMap();
+  const rectRef = useRef<google.maps.Rectangle | null>(null);
+  const clickRef = useRef(onClick);
+  useEffect(() => {
+    clickRef.current = onClick;
+  });
+
+  useEffect(() => {
+    if (!map) return;
+    const rect = new google.maps.Rectangle({
+      map,
+      bounds: { north: box.maxLat, south: box.minLat, east: box.maxLng, west: box.minLng },
+      strokeColor: color,
+      strokeWeight: selected ? 2 : 1,
+      fillColor: color,
+      fillOpacity: selected ? 0.12 : 0.05,
+      clickable: true,
+    });
+    const listener = rect.addListener("click", () => clickRef.current());
+    rectRef.current = rect;
+    return () => {
+      listener.remove();
+      rect.setMap(null);
+      rectRef.current = null;
+    };
+  }, [map, box.minLat, box.maxLat, box.minLng, box.maxLng, color, selected]);
+
   return null;
 }
 
@@ -81,45 +100,43 @@ export default function AreasMap({
   const withCoords = areas.filter((a) => a.lat != null && a.lng != null);
 
   return (
-    <MapContainer
-      center={ITALY_CENTER}
-      zoom={5}
-      scrollWheelZoom
-      className="h-full w-full"
-      style={{ zIndex: 0 }}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <ViewController areas={withCoords} selectedId={selectedId} />
-      {withCoords.map((a) => {
-        const selected = a.id === selectedId;
-        const color = !a.active ? "#94a3b8" : "#2563a8";
-        return (
-          <Fragment key={a.id}>
-            {a.boundingBox && (
-              <Rectangle
-                bounds={[
-                  [a.boundingBox.minLat, a.boundingBox.minLng],
-                  [a.boundingBox.maxLat, a.boundingBox.maxLng],
-                ]}
-                pathOptions={{
-                  color,
-                  weight: selected ? 2 : 1,
-                  fillOpacity: selected ? 0.12 : 0.05,
-                }}
-                eventHandlers={{ click: () => onSelect(a.id) }}
-              />
-            )}
-            <Marker
-              position={[a.lat as number, a.lng as number]}
-              icon={pinIcon(a.active, selected)}
-              eventHandlers={{ click: () => onSelect(a.id) }}
-            />
-          </Fragment>
-        );
-      })}
-    </MapContainer>
+    <MapsProvider>
+      <GoogleMap
+        mapId={GOOGLE_MAP_ID}
+        defaultCenter={ITALY_CENTER}
+        defaultZoom={5}
+        gestureHandling="greedy"
+        disableDefaultUI
+        zoomControl
+        clickableIcons={false}
+        style={{ width: "100%", height: "100%" }}
+      >
+        <ViewController areas={withCoords} selectedId={selectedId} />
+        {withCoords.map((a) => {
+          const selected = a.id === selectedId;
+          const color = !a.active ? INACTIVE_GREY : selected ? ROOME_BLUE_DARK : ROOME_BLUE;
+          return (
+            <span key={a.id}>
+              {a.boundingBox && (
+                <ExtentRectangle
+                  box={a.boundingBox}
+                  color={!a.active ? INACTIVE_GREY : ROOME_BLUE}
+                  selected={selected}
+                  onClick={() => onSelect(a.id)}
+                />
+              )}
+              <AdvancedMarker
+                position={{ lat: a.lat as number, lng: a.lng as number }}
+                zIndex={selected ? 2 : 1}
+                onClick={() => onSelect(a.id)}
+                title={a.displayName}
+              >
+                <PinGlyph color={color} size={selected ? 40 : 28} />
+              </AdvancedMarker>
+            </span>
+          );
+        })}
+      </GoogleMap>
+    </MapsProvider>
   );
 }

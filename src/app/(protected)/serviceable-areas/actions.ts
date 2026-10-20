@@ -2,8 +2,9 @@
 
 // Serviceable Areas — server actions (admin-only).
 //
-//   searchPlaces           OSM lookup for Italian settlements
+//   searchPlaces           Google lookup for Italian settlements
 //   createServiceableArea  store a chosen place as a serviceable area
+//   relinkServiceableArea  point an existing area at a (re)chosen place
 //   setAreaActive          switch an area on or off
 //   deleteServiceableArea  remove one permanently
 //
@@ -77,6 +78,55 @@ export async function createServiceableArea(
         osmType: candidate.osmType,
         osmClass: candidate.osmClass,
         placeRank: candidate.placeRank,
+        googlePlaceId: candidate.googlePlaceId,
+      }),
+    });
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    return toError(err);
+  }
+
+  revalidatePath("/serviceable-areas");
+  return { ok: true };
+}
+
+/**
+ * Relink an existing area to a place chosen from the search, and/or rename
+ * what tenants see. The area's id never changes — every property and tenant
+ * interest points at it — which is why this is an edit and not remove + add.
+ */
+export async function relinkServiceableArea(
+  id: string,
+  input: { place: PlaceCandidate | null; displayName: string },
+): Promise<Result> {
+  await requireAdminSession();
+  if (!id) return { ok: false, error: "Missing area id." };
+  const displayName = input.displayName.trim();
+  const place = input.place;
+  if (place && (!place.googlePlaceId || !Number.isFinite(place.lat) || !Number.isFinite(place.lng))) {
+    return { ok: false, error: "Invalid place data." };
+  }
+  if (!place && !displayName) return { ok: false, error: "Nothing to update." };
+
+  try {
+    await apiAuthed(`/admin/areas/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...(displayName ? { displayName } : {}),
+        ...(place
+          ? {
+              place: {
+                name: place.name,
+                province: place.province || undefined,
+                region: place.region || undefined,
+                country: (place.country || "IT").toUpperCase(),
+                lat: place.lat,
+                lng: place.lng,
+                boundingBox: place.boundingBox,
+                googlePlaceId: place.googlePlaceId,
+              },
+            }
+          : {}),
       }),
     });
   } catch (err) {

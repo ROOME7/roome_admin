@@ -2,8 +2,8 @@
 
 // Dashboard map orchestrator.
 //
-// Leaflet touches `window` at import time, so the actual <ListingsMap> is
-// pulled in with next/dynamic({ ssr: false }) from inside this Client
+// The Google map touches `window` at import time, so the actual <ListingsMap>
+// is pulled in with next/dynamic({ ssr: false }) from inside this Client
 // Component (Next 16 forbids ssr:false from Server Components).
 //
 // Responsibilities: hold the selected pin, lazy-load its full record via the
@@ -74,9 +74,8 @@ export function DashboardMap({ markers }: { markers: MapMarker[] }) {
 
   return (
     <section className="grid gap-4 lg:grid-cols-3">
-      {/* `isolate` traps Leaflet's high internal z-indexes (panes/controls
-          reach 400–800) inside this box so they can't paint over the sticky
-          app header. */}
+      {/* `isolate` keeps the map's internal z-indexes inside this box so
+          they can't paint over the sticky app header. */}
       <div className="relative isolate h-[68vh] overflow-hidden rounded-lg border border-border bg-surface lg:col-span-2">
         {markers.length === 0 ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">

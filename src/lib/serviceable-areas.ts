@@ -43,6 +43,10 @@ export interface ServiceableArea {
   propertyCount: number;
   /** Tenants who said they want to live here. */
   interestedTenants: number;
+  /** Google Places id — null for an area found on OpenStreetMap before the switch. */
+  googlePlaceId: string | null;
+  /** OpenStreetMap id — kept as history on the pre-switch areas. */
+  osmId: number | null;
 }
 
 /**
@@ -57,7 +61,7 @@ export interface UnservedDemand {
   tenants: number;
 }
 
-/** A place returned by the OSM lookup, ready to be turned into an area. */
+/** A place returned by the Google lookup, ready to be turned into an area. */
 export interface PlaceCandidate {
   name: string;
   province: string;
@@ -71,6 +75,8 @@ export interface PlaceCandidate {
   osmType: string | null;
   osmClass: string | null;
   placeRank: number | null;
+  /** What tells two same-named comuni apart. Always set now. */
+  googlePlaceId: string | null;
   displayName: string;
 }
 

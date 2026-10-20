@@ -1047,7 +1047,7 @@ export interface PublishListingInput {
   province: string;
   region: string;
   neighborhood?: string;
-  // Geocoded coordinates from the Nominatim autocomplete. Optional — if the
+  // Geocoded coordinates from the address autocomplete. Optional — if the
   // admin types the address manually we write `null` so the tenant-side
   // map section hides instead of centring on (0,0). Bug round 2026-05-19
   // #3 (client feedback).
@@ -1224,7 +1224,7 @@ export async function publishListingAs(
     civic: streetNumber,
     city,
     infoHouse: input.description.trim().slice(0, 5_000),
-    // Coordinates come from the Nominatim autocomplete in the admin form.
+    // Coordinates come from the address autocomplete in the admin form.
     // If the admin typed the address manually (no pick), we write `null`
     // so HouseData.latitude reads null and the tenant-side map section
     // hides — preferable to centring on (0,0) which is the Gulf of Guinea.

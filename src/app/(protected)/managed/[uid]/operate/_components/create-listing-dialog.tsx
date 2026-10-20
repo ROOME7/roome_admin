@@ -15,42 +15,17 @@ import {
 } from '../actions';
 import { Field, InputStyles, Overlay } from '../../../_components/dialog-primitives';
 import { useT } from '@/i18n/client';
+import { resolveAddress, suggestAddresses, type AddressSuggestion } from '../place-actions';
 
 // ---------------------------------------------------------------------------
-// Nominatim (OpenStreetMap) address autocomplete
+// Address autocomplete — Google Places, through the API's proxy.
 //
-// Mirrors what the Flutter app's add_house_screen.dart does (single Search
-// field that pre-fills street / number / city / region / etc.). Nominatim
-// is free with no API key — we only need a polite User-Agent and a debounce
-// so we don't get rate-limited.
-//
-// Country is hard-coded to `it` to match the app's behavior.
+// Mirrors what the app's add-house screen does (one search field that
+// pre-fills street / number / city / region / etc.). The API holds the Google
+// key; this component only carries a session token so the whole search is
+// billed as one session: the token is minted when typing starts and sent on
+// every suggestion request and on the details call that ends the search.
 // ---------------------------------------------------------------------------
-
-interface NominatimAddress {
-  road?: string;
-  pedestrian?: string;
-  path?: string;
-  house_number?: string;
-  postcode?: string;
-  city?: string;
-  town?: string;
-  village?: string;
-  municipality?: string;
-  suburb?: string;
-  neighbourhood?: string;
-  quarter?: string;
-  county?: string;
-  state_district?: string;
-  state?: string;
-}
-
-interface NominatimResult {
-  display_name: string;
-  lat: string;
-  lon: string;
-  address?: NominatimAddress;
-}
 
 export interface ParsedAddress {
   street: string;
@@ -60,29 +35,20 @@ export interface ParsedAddress {
   province: string;
   region: string;
   neighborhood: string;
-  // Geocoded coordinates from the Nominatim result. Persisting these on the
+  // Geocoded coordinates from the chosen place. Persisting these on the
   // property is what makes the tenant-side map render at the right place —
   // without them HouseData.latitude defaults to null and the map section
   // hides entirely (preferable to centring on (0,0)).
   latitude: number | null;
   longitude: number | null;
+  /** The Google place id, so the API can refresh the pin from it later. */
+  placeId: string | null;
 }
 
-function parseNominatim(r: NominatimResult): ParsedAddress {
-  const a = r.address ?? {};
-  const lat = Number.parseFloat(r.lat);
-  const lon = Number.parseFloat(r.lon);
-  return {
-    street: a.road || a.pedestrian || a.path || '',
-    streetNumber: a.house_number || '',
-    postalCode: a.postcode || '',
-    city: a.city || a.town || a.village || a.municipality || '',
-    province: a.county || a.state_district || '',
-    region: a.state || '',
-    neighborhood: a.suburb || a.neighbourhood || a.quarter || '',
-    latitude: Number.isFinite(lat) ? lat : null,
-    longitude: Number.isFinite(lon) ? lon : null,
-  };
+function newSessionToken(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function AddressAutocomplete({
@@ -94,58 +60,62 @@ function AddressAutocomplete({
 }) {
   const t = useT();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [results, setResults] = useState<AddressSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const requestRef = useRef(0);
+  const sessionRef = useRef<string>(newSessionToken());
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-
-    if (query.trim().length < 3) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+    const seq = ++requestRef.current;
+    const short = query.trim().length < 3;
+    // Everything happens after the debounce, never synchronously in the
+    // effect: a too-short query clears the list on the next tick, a real one
+    // shows "searching" and asks the API.
     debounceRef.current = setTimeout(async () => {
-      const controller = new AbortController();
-      abortRef.current = controller;
-      try {
-        const url =
-          `https://nominatim.openstreetmap.org/search?` +
-          `q=${encodeURIComponent(query)}&format=json&addressdetails=1` +
-          `&countrycodes=it&limit=5`;
-        const res = await fetch(url, {
-          signal: controller.signal,
-          headers: {
-            // Nominatim policy requires a descriptive UA — admin panel
-            // contact info per the public terms.
-            'Accept-Language': 'it,en',
-          },
-        });
-        if (!res.ok) {
-          setResults([]);
-        } else {
-          const data = (await res.json()) as NominatimResult[];
-          setResults(Array.isArray(data) ? data : []);
-        }
-      } catch (e) {
-        if (!(e instanceof DOMException && e.name === 'AbortError')) {
-          console.warn('[AddressAutocomplete] lookup failed', e);
-        }
-      } finally {
+      if (short) {
+        setResults([]);
         setLoading(false);
+        return;
       }
-    }, 600);
+      setLoading(true);
+      const res = await suggestAddresses(query, sessionRef.current);
+      // A reply to an older keystroke must not overwrite a newer one.
+      if (seq !== requestRef.current) return;
+      if (res.ok) {
+        setResults(res.data);
+        setError(null);
+      } else {
+        setResults([]);
+        setError(res.error);
+      }
+      setLoading(false);
+    }, short ? 0 : 500);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
     };
   }, [query]);
+
+  async function pick(s: AddressSuggestion) {
+    setOpen(false);
+    setQuery(s.text);
+    setLoading(true);
+    const token = sessionRef.current;
+    // The details call ends this session; the next search gets a fresh token.
+    sessionRef.current = newSessionToken();
+    const res = await resolveAddress(s.placeId, token);
+    setLoading(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setError(null);
+    onPick(res.data);
+  }
 
   return (
     <div className="relative">
@@ -170,23 +140,29 @@ function AddressAutocomplete({
           {t('operate.addressSearching')}
         </span>
       )}
+      {error && (
+        <p role="alert" className="mt-1 text-xs text-destructive">
+          {error}
+        </p>
+      )}
       {open && results.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
-          {results.map((r, i) => (
-            <li key={`${r.lat}-${r.lon}-${i}`}>
+          {results.map((r) => (
+            <li key={r.placeId}>
               <button
                 type="button"
                 onMouseDown={(e) => {
                   // Use onMouseDown so it fires before the input's onBlur
                   // closes the dropdown.
                   e.preventDefault();
-                  onPick(parseNominatim(r));
-                  setQuery(r.display_name);
-                  setOpen(false);
+                  void pick(r);
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-foreground hover:bg-secondary"
               >
-                {r.display_name}
+                <span className="font-medium">{r.mainText}</span>
+                {r.secondaryText && (
+                  <span className="ml-1 text-xs text-muted-foreground">{r.secondaryText}</span>
+                )}
               </button>
             </li>
           ))}

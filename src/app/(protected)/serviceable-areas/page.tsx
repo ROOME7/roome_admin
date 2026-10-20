@@ -38,6 +38,8 @@ interface ApiArea {
   createdAt: string | null;
   propertyCount: number;
   interestedTenants: number;
+  googlePlaceId: string | null;
+  osm?: { id: number | null } | null;
 }
 
 /**
@@ -90,6 +92,8 @@ async function loadBoard(): Promise<{
       createdAt: a.createdAt ? new Date(a.createdAt).getTime() : null,
       propertyCount: a.propertyCount,
       interestedTenants: a.interestedTenants,
+      googlePlaceId: a.googlePlaceId ?? null,
+      osmId: a.osm?.id ?? null,
     })),
     unservedDemand: res.unservedDemand ?? [],
   };

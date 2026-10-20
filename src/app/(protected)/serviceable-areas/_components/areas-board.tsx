@@ -63,7 +63,7 @@ export function AreasBoard({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
-        {/* Map — `isolate` keeps Leaflet's z-indexes off the sticky header. */}
+        {/* Map — `isolate` keeps the map's z-indexes off the sticky header. */}
         <div className="relative isolate h-[70vh] overflow-hidden rounded-xl border border-border bg-surface lg:col-span-3">
           <AreasMap
             areas={areas}
@@ -140,11 +140,7 @@ export function AreasBoard({
                           {a.id}
                         </p>
                       </div>
-                      <AreaRowActions
-                        id={a.id}
-                        name={a.displayName}
-                        active={a.active}
-                      />
+                      <AreaRowActions area={a} />
                     </div>
                   </li>
                 );
