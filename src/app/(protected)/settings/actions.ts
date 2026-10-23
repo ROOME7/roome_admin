@@ -54,3 +54,15 @@ export async function restoreConfig(version: number, baseVersion: number): Promi
     return toError(err);
   }
 }
+
+export async function deleteConfigVersion(version: number): Promise<Result> {
+  await requireAdminSession();
+  try {
+    await apiAuthed(`/admin/config/versions/${encodeURIComponent(String(version))}`, { method: "DELETE" });
+    revalidatePath("/settings");
+    return { ok: true, version };
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err;
+    return toError(err);
+  }
+}

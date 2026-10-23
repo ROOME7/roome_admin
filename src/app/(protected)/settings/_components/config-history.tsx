@@ -5,7 +5,7 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { useT } from "@/i18n/client";
-import { restoreConfig } from "../actions";
+import { deleteConfigVersion, restoreConfig } from "../actions";
 import type { ConfigVersion } from "../config-types";
 
 function valueAt(obj: unknown, path: string): string {
@@ -17,6 +17,7 @@ export function ConfigHistory({ versions, liveVersion }: { versions: ConfigVersi
   const t = useT();
   const [open, setOpen] = useState<number | null>(null);
   const [confirming, setConfirming] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startRestore] = useTransition();
 
@@ -26,6 +27,15 @@ export function ConfigHistory({ versions, liveVersion }: { versions: ConfigVersi
       const res = await restoreConfig(version, liveVersion);
       if (!res.ok) setError(res.stale ? t("settings.staleError") : res.error);
       setConfirming(null);
+    });
+  }
+
+  function remove(version: number) {
+    setError(null);
+    startRestore(async () => {
+      const res = await deleteConfigVersion(version);
+      if (!res.ok) setError(res.error);
+      setDeleting(null);
     });
   }
 
@@ -76,6 +86,22 @@ export function ConfigHistory({ versions, liveVersion }: { versions: ConfigVersi
                     ) : (
                       <button type="button" onClick={() => setConfirming(v.version)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-secondary">
                         {t("settings.restore")}
+                      </button>
+                    ))}
+                  {!v.live &&
+                    confirming !== v.version &&
+                    (deleting === v.version ? (
+                      <>
+                        <button type="button" onClick={() => remove(v.version)} disabled={pending} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60">
+                          {pending ? t("settings.deleting") : t("settings.confirmDelete", { version: v.version })}
+                        </button>
+                        <button type="button" onClick={() => setDeleting(null)} disabled={pending} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-secondary">
+                          {t("common.cancel")}
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => setDeleting(v.version)} title={t("settings.deleteHint")} className="rounded-md border border-destructive/40 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10">
+                        {t("settings.delete")}
                       </button>
                     ))}
                 </div>

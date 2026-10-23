@@ -44,6 +44,10 @@ const it = {
   confirmRestore: 'Ripristina la v{version}',
   restoring: 'Ripristino…',
   key: 'Chiave',
+  delete: 'Elimina',
+  confirmDelete: 'Elimina definitivamente la v{version}',
+  deleting: 'Eliminazione…',
+  deleteHint: 'La versione attiva non si può eliminare: ripristinane prima un’altra.',
 };
 
 const en: Record<keyof typeof it, string> = {
@@ -91,6 +95,10 @@ const en: Record<keyof typeof it, string> = {
   confirmRestore: 'Restore v{version}',
   restoring: 'Restoring…',
   key: 'Key',
+  delete: 'Delete',
+  confirmDelete: 'Delete v{version} permanently',
+  deleting: 'Deleting…',
+  deleteHint: 'The live version cannot be deleted: restore another one first.',
 };
 
 export const settings = { it, en };
